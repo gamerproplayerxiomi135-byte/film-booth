@@ -86,19 +86,17 @@
                 });
             }
 
-            document.getElementById('generate-btn').addEventListener('click', async () => {
-                if (!user) return alert("Still connecting to database... please wait a moment.");
-                
-                const code = generateRandomCode();
-                currentRoom = code;
-                
-                try {
-                    // Create the waiting room in the database
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
-                        status: 'waiting',
-                        trigger: 'idle',
-                        timestamp: serverTimestamp() 
-                    });
+			document.getElementById('generate-btn').addEventListener('click', async () => {
+			    const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+			    currentRoom = code;
+			    // THIS LINE IS THE DATABASE INTERACTION
+			    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
+			        status: 'waiting', 
+			        trigger: 'idle', 
+			        timestamp: serverTimestamp() 
+			    });
+			    // ...
+			});
 
                     // Swap UI to active room mode
                     roomSetup.classList.add('hidden');
