@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Film Photobooth</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Courier+Prime&family=Dancing+Script:wght@600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #121212;
+            color: #f3f4f6;
+        }
+        .film-font {
+            font-family: 'Courier Prime', monospace;
+        }
+        
+        /* Camera mirror effect */
+        #camera-feed {
+            transform: scaleX(-1);
+        }
+
+        /* Flash animation */
+        @keyframes flash {
+            0% { opacity: 0; }
+            10% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        .flash-active {
+            animation: flash 0.5s ease-out;
+        }
+
+        /* Custom scrollbar for the strip area */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center py-10 px-4">
+
+    <header class="text-center mb-10 w-full max-w-5xl">
+        <h1 class="text-4xl md:text-5xl font-bold tracking-tight mb-2 text-white">FILM BOOTH</h1>
+        <p class="text-gray-400">Select a film, strike 4 poses, and get your strip.</p>
+    </header>
+
+    <main class="w-full max-w-6xl flex flex-col md:flex-row gap-8 items-start justify-center">
+        
+        <!-- Left Column: Camera and Controls -->
+        <div class="w-full md:w-1/2 lg:w-[500px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
+            
+            <!-- Camera Viewfinder -->
+            <div id="camera-container" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner min-h-[300px] transition-all duration-300">
+                <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline></video>
+                
+                <!-- Countdown Overlay -->
+                <div id="countdown-overlay" class="absolute inset-0 flex items-center justify-center text-7xl font-bold text-white drop-shadow-md hidden z-10 bg-black/30">
+                    3
+                </div>
+
+                <!-- Flash Overlay -->
+                <div id="flash-overlay" class="absolute inset-0 bg-white opacity-0 pointer-events-none z-20"></div>
+                
+                <!-- Camera Error Message -->
+                <div id="camera-error" class="absolute inset-0 flex items-center justify-center p-6 text-center text-red-400 bg-gray-900 hidden z-30">
+                    Unable to access camera. Please check your permissions and refresh.
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="flex flex-col gap-4">
+                <div class="flex flex-col gap-2">
+                    <label for="photo-count-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Number of Photos</label>
+                    <select id="photo-count-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
+                        <option value="4">4 Photos</option>
+                        <option value="3">3 Photos</option>
+                        <option value="2">2 Photos</option>
+                        <option value="1">1 Photo</option>
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                    <label for="filter-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Select Film Stock</label>
+                    <select id="filter-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
+                        <optgroup label="Standard Digital">
+                            <option value="none">Digital (No Filter)</option>
+                        </optgroup>
+                        <optgroup label="Kodak Emulations">
+                            <option value="sepia(30%) contrast(110%) saturate(140%) brightness(110%) hue-rotate(-5deg)">Kodak Gold 200</option>
+                            <option value="sepia(10%) contrast(95%) saturate(120%) brightness(105%) hue-rotate(-5deg)">Kodak Portra 400</option>
+                            <option value="sepia(20%) contrast(120%) saturate(110%) brightness(105%) hue-rotate(-10deg)">Kodak Ektar 100</option>
+                        </optgroup>
+                        <optgroup label="Fujifilm Emulations">
+                            <option value="contrast(115%) saturate(130%) hue-rotate(5deg) brightness(95%)">Fuji Superia 400</option>
+                            <option value="contrast(130%) saturate(180%) brightness(105%) hue-rotate(-5deg)">Fuji Velvia 50</option>
+                        </optgroup>
+                        <optgroup label="Monochrome">
+                            <option value="grayscale(100%) contrast(140%) brightness(110%)">Kodak Tri-X 400 (B&W)</option>
+                            <option value="grayscale(100%) contrast(90%) brightness(105%)">Ilford HP5 Plus (B&W)</option>
+                        </optgroup>
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                    <label for="strip-design-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Strip Design</label>
+                    <select id="strip-design-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
+                        <option value="white">Classic White</option>
+                        <option value="dark">Midnight Noir</option>
+                        <option value="coffee">Coffee Stains</option>
+                        <option value="flowers">Field of Flowers</option>
+                        <option value="grid">Retro Grid Paper</option>
+                    </select>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                    <label for="countdown-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Countdown Timer</label>
+                    <select id="countdown-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
+                        <option value="3">3 Seconds</option>
+                        <option value="5">5 Seconds</option>
+                        <option value="10" selected>10 Seconds</option>
+                        <option value="20">20 Seconds</option>
+                        <option value="30">30 Seconds</option>
+                    </select>
+                </div>
+
+                <button id="start-btn" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-lg transition-colors shadow-lg hover:shadow-indigo-500/25 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                    Start Booth (4 Photos)
+                </button>
+                
+                <p id="timer-helper-text" class="text-xs text-center text-gray-500 mt-2">Provides a 10-second timer between each shot.</p>
+
+                <div id="live-preview-container" class="hidden mt-2">
+                    <p class="text-xs text-center text-gray-500 uppercase tracking-wider mb-1">Just Captured</p>
+                    <img id="live-preview" class="w-full rounded-lg border border-gray-700 shadow-md" alt="Most recently captured photo" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Film Strip Result -->
+        <div class="w-full md:w-1/2 lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
+            <div class="w-full flex justify-between items-center mb-4 flex-wrap gap-2">
+                <h2 class="text-xl font-semibold text-white">Your Strip & BTS</h2>
+                <div class="flex gap-2">
+                    <button id="download-video-btn" class="hidden px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-md text-sm transition-colors shadow-md flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                        BTS Video
+                    </button>
+                    <button id="download-btn" class="hidden px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-sm transition-colors shadow-md flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                        Strip
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scrollable container for the strip -->
+            <div class="flex-1 w-full bg-gray-950 rounded-lg border border-gray-800 p-4 overflow-y-auto flex flex-col items-center gap-6 max-h-[80vh]">
+                
+                <!-- This canvas holds the final stitched image -->
+                <canvas id="strip-canvas" class="hidden max-w-full h-auto shadow-2xl bg-white flex-shrink-0"></canvas>
+                
+                <!-- This video holds the BTS preview -->
+                <video id="bts-preview" controls class="hidden max-w-full h-auto rounded-lg shadow-2xl border border-gray-700 bg-black flex-shrink-0"></video>
+                
+                <!-- Placeholder when empty -->
+                <div id="strip-placeholder" class="h-full flex flex-col items-center justify-center text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mb-4 opacity-50"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    <p>Your photos will appear here</p>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // DOM Elements
+        const video = document.getElementById('camera-feed');
+        const filterSelect = document.getElementById('filter-select');
+        const photoCountSelect = document.getElementById('photo-count-select');
+        const startBtn = document.getElementById('start-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const downloadVideoBtn = document.getElementById('download-video-btn');
+        const countdownOverlay = document.getElementById('countdown-overlay');
+        const flashOverlay = document.getElementById('flash-overlay');
+        const cameraError = document.getElementById('camera-error');
+        const stripCanvas = document.getElementById('strip-canvas');
+        const btsPreview = document.getElementById('bts-preview');
+        const stripPlaceholder = document.getElementById('strip-placeholder');
+        const countdownSelect = document.getElementById('countdown-select');
+        const timerHelperText = document.getElementById('timer-helper-text');
+        const stripDesignSelect = document.getElementById('strip-design-select');
+        const livePreviewContainer = document.getElementById('live-preview-container');
+        const livePreview = document.getElementById('live-preview');
+        
+        // Strip Configuration settings (Upscaled for High-Res Download)
+        const config = {
+            totalPhotos: 4,
+            countdownSeconds: 10,
+            videoWidth: 1280,  
+            videoHeight: 720, 
+            stripWidth: 1000, 
+            padding: 40,
+            bottomPadding: 160 
+        };
+        
+        const stripCtx = stripCanvas.getContext('2d');
+
+        let isCapturing = false;
+        let capturedFrames = [];
+
+        async function initCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { width: { ideal: 1920 }, height: { ideal: 1080 }, facingMode: "user" }, 
+                    audio: false 
+                });
+                video.srcObject = stream;
+
+                video.addEventListener('loadedmetadata', () => {
+                    config.videoWidth = video.videoWidth;
+                    config.videoHeight = video.videoHeight;
+                    
+                    const container = document.getElementById('camera-container');
+                    container.style.aspectRatio = `${config.videoWidth} / ${config.videoHeight}`;
+                });
+
+            } catch (err) {
+                console.error("Camera access denied or unavailable:", err);
+                cameraError.classList.remove('hidden');
+                startBtn.disabled = true;
+                startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        async function startSequence() {
+            if (isCapturing) return;
+            isCapturing = true;
+            capturedFrames = [];
+            
+            config.totalPhotos = parseInt(photoCountSelect.value, 10);
+            config.countdownSeconds = parseInt(countdownSelect.value, 10);
+            
+            startBtn.disabled = true;
+            photoCountSelect.disabled = true;
+            filterSelect.disabled = true;
+            stripDesignSelect.disabled = true;
+            countdownSelect.disabled = true;
+            
+            startBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Capturing...';
+            downloadBtn.classList.add('hidden');
+            downloadVideoBtn.classList.add('hidden');
+            stripPlaceholder.classList.remove('hidden');
+            stripCanvas.classList.add('hidden');
+            btsPreview.classList.add('hidden');
+            btsPreview.src = '';
+            livePreviewContainer.classList.add('hidden');
+            livePreview.src = '';
+
+            const recordCanvas = document.createElement('canvas');
+            recordCanvas.width = config.videoWidth;
+            recordCanvas.height = config.videoHeight;
+            const recCtx = recordCanvas.getContext('2d');
+            
+            const stream = recordCanvas.captureStream(30);
+            const mediaRecorder = new MediaRecorder(stream);
+            const recordedChunks = [];
+            
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+            
+            let isRecording = true;
+            
+            function drawRecordFrame() {
+                if (!isRecording) return;
+                recCtx.save();
+                recCtx.translate(recordCanvas.width, 0);
+                recCtx.scale(-1, 1);
+                recCtx.filter = filterSelect.value;
+                recCtx.drawImage(video, 0, 0, recordCanvas.width, recordCanvas.height);
+                recCtx.restore();
+                requestAnimationFrame(drawRecordFrame);
+            }
+            
+            drawRecordFrame();
+            mediaRecorder.start();
+
+            for (let i = 0; i < config.totalPhotos; i++) {
+                await runCountdown();
+                captureFrame();
+                flashScreen();
+                await delay(500); 
+            }
+
+            isRecording = false;
+            mediaRecorder.stop();
+            
+            mediaRecorder.onstop = () => {
+                let ext = 'webm';
+                if (mediaRecorder.mimeType && mediaRecorder.mimeType.includes('mp4')) ext = 'mp4';
+                
+                const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+                const videoUrl = URL.createObjectURL(blob);
+                
+                btsPreview.src = videoUrl;
+                btsPreview.classList.remove('hidden');
+
+                downloadVideoBtn.onclick = () => {
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = videoUrl;
+                    a.download = `photobooth-bts-${Date.now()}.${ext}`;
+                    document.body.appendChild(a);
+                    a.click();
+                };
+                downloadVideoBtn.classList.remove('hidden');
+            };
+
+            renderStrip();
+            isCapturing = false;
+            
+            startBtn.disabled = false;
+            photoCountSelect.disabled = false;
+            filterSelect.disabled = false;
+            stripDesignSelect.disabled = false;
+            countdownSelect.disabled = false;
+            
+            const count = photoCountSelect.value;
+            const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
+            startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Retake (${photoText})`;
+        }
+
+        async function runCountdown() {
+            livePreviewContainer.classList.add('hidden');
+            countdownOverlay.classList.remove('hidden');
+            for (let i = config.countdownSeconds; i > 0; i--) {
+                countdownOverlay.innerText = i;
+                countdownOverlay.style.transform = 'scale(1.2)';
+                setTimeout(() => countdownOverlay.style.transform = 'scale(1)', 100);
+                
+                await delay(1000);
+            }
+            countdownOverlay.classList.add('hidden');
+        }
+
+        function flashScreen() {
+            flashOverlay.classList.remove('flash-active');
+            void flashOverlay.offsetWidth; 
+            flashOverlay.classList.add('flash-active');
+        }
+
+        function captureFrame() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = config.videoWidth;
+            tempCanvas.height = config.videoHeight;
+            const ctx = tempCanvas.getContext('2d');
+
+            ctx.translate(tempCanvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.filter = filterSelect.value;
+            ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            capturedFrames.push(tempCanvas);
+
+            livePreview.src = tempCanvas.toDataURL('image/png');
+            livePreviewContainer.classList.remove('hidden');
+        }
+
+        function drawStripBackground(ctx, width, height, design) {
+            let textColors = { main: '#333333', sub: '#666666' };
+
+            if (design === 'white') {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, width, height);
+                addNoise(ctx, width, height);
+            } 
+            else if (design === 'dark') {
+                ctx.fillStyle = '#121212';
+                ctx.fillRect(0, 0, width, height);
+                addNoise(ctx, width, height);
+                textColors = { main: '#f3f4f6', sub: '#9ca3af' };
+            } 
+            else if (design === 'coffee') {
+                ctx.fillStyle = '#F4ECD8'; 
+                ctx.fillRect(0, 0, width, height);
+                for(let i = 0; i < 400; i++) {
+                    ctx.beginPath();
+                    let radius = Math.random() > 0.95 ? Math.random() * 3 + 1 : Math.random() * 1.5;
+                    ctx.arc(Math.random() * width, Math.random() * height, radius, 0, Math.PI * 2);
+                    let alpha = Math.random() * 0.15 + 0.05;
+                    ctx.fillStyle = `rgba(${139 + Math.random()*50}, ${69 + Math.random()*30}, ${19}, ${alpha})`;
+                    ctx.fill();
+                }
+                let grad = ctx.createRadialGradient(width/2, height/2, width*0.4, width/2, height/2, Math.max(width, height));
+                grad.addColorStop(0, 'rgba(0,0,0,0)');
+                grad.addColorStop(1, 'rgba(101, 67, 33, 0.15)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+                addNoise(ctx, width, height, 15);
+            } 
+            else if (design === 'flowers') {
+                let grad = ctx.createLinearGradient(0, 0, 0, height);
+                grad.addColorStop(0, '#e8f5e9');
+                grad.addColorStop(1, '#fffde7');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+                const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                for(let i = 0; i < 60; i++) {
+                    let x = Math.random() * width;
+                    let y = Math.random() * height;
+                    let emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                    let size = Math.random() * 50 + 30;
+                    ctx.font = `${size}px Arial`;
+                    ctx.globalAlpha = 0.6;
+                    ctx.save();
+                    ctx.translate(x, y);
+                    ctx.rotate(Math.random() * Math.PI * 2); 
+                    ctx.fillText(emoji, 0, 0);
+                    ctx.restore();
+                }
+                ctx.globalAlpha = 1.0;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'alphabetic';
+            }
+            else if (design === 'grid') {
+                ctx.fillStyle = '#fafafa';
+                ctx.fillRect(0, 0, width, height);
+                ctx.strokeStyle = '#bae6fd'; 
+                ctx.lineWidth = 2;
+                for(let x = 0; x < width; x += 40) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+                }
+                for(let y = 0; y < height; y += 40) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
+                }
+                ctx.strokeStyle = '#fbcfe8';
+                ctx.lineWidth = 6;
+                ctx.beginPath(); ctx.moveTo(80, 0); ctx.lineTo(80, height); ctx.stroke();
+            }
+
+            return textColors;
+        }
+
+        function addNoise(ctx, w, h, intensity = 4) {
+            const imageData = ctx.getImageData(0, 0, w, h);
+            const data = imageData.data;
+            for (let i = 0; i < data.length; i += 4) {
+                const noise = Math.random() * (intensity * 2) - intensity; 
+                data[i] = Math.min(255, data[i] + noise);   
+                data[i+1] = Math.min(255, data[i+1] + noise); 
+                data[i+2] = Math.min(255, data[i+2] + noise); 
+            }
+            ctx.putImageData(imageData, 0, 0);
+        }
+
+        function renderStrip() {
+            const numPhotos = capturedFrames.length;
+            if (numPhotos === 0) return;
+
+            const cellWidth = config.stripWidth - (config.padding * 2);
+            const aspectRatio = config.videoHeight / config.videoWidth;
+            const cellHeight = cellWidth * aspectRatio;
+
+            const gap = 20;
+            const totalHeight = config.padding + (numPhotos * cellHeight) + ((numPhotos - 1) * gap) + config.bottomPadding;
+
+            stripCanvas.width = config.stripWidth;
+            stripCanvas.height = totalHeight;
+
+            const textColors = drawStripBackground(stripCtx, stripCanvas.width, stripCanvas.height, stripDesignSelect.value);
+
+            capturedFrames.forEach((frameCanvas, i) => {
+                const y = config.padding + i * (cellHeight + gap);
+                stripCtx.drawImage(frameCanvas, config.padding, y, cellWidth, cellHeight);
+                stripCtx.strokeStyle = 'rgba(0,0,0,0.15)';
+                stripCtx.lineWidth = 2;
+                stripCtx.strokeRect(config.padding, y, cellWidth, cellHeight);
+            });
+
+            const footerY = totalHeight - config.bottomPadding / 2;
+            stripCtx.fillStyle = textColors.main;
+            
+            // Updated to Fancy Dancing Script
+            stripCtx.font = "bold 72px 'Dancing Script', cursive";
+            stripCtx.textAlign = 'center';
+            stripCtx.fillText('FILM BOOTH', stripCanvas.width / 2, footerY - 20);
+
+            stripCtx.fillStyle = textColors.sub;
+            stripCtx.font = "40px 'Dancing Script', cursive";
+            const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            stripCtx.fillText(dateStr, stripCanvas.width / 2, footerY + 35);
+
+            stripCtx.textAlign = 'left';
+
+            stripPlaceholder.classList.add('hidden');
+            stripCanvas.classList.remove('hidden');
+            downloadBtn.classList.remove('hidden');
+        }
+
+        function downloadStrip() {
+            const dataURL = stripCanvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = `photobooth-strip-${Date.now()}.png`;
+            link.href = dataURL;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        startBtn.addEventListener('click', startSequence);
+        downloadBtn.addEventListener('click', downloadStrip);
+        
+        photoCountSelect.addEventListener('change', () => {
+            if (!isCapturing) {
+                const count = photoCountSelect.value;
+                const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
+                startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Start Booth (${photoText})`;
+            }
+        });
+
+        countdownSelect.addEventListener('change', () => {
+            timerHelperText.innerText = `Provides a ${countdownSelect.value}-second timer between each shot.`;
+        });
+
+        stripDesignSelect.addEventListener('change', () => {
+            if (!isCapturing && capturedFrames.length > 0) {
+                renderStrip();
+            }
+        });
+
+        filterSelect.addEventListener('change', () => {
+            video.style.filter = filterSelect.value;
+        });
+
+        initCamera();
+    </script>
+</body>
+</html>
