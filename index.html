@@ -57,33 +57,43 @@
 		    const leaveBtn = document.getElementById('leave-room-btn');
 		
 		    // Generate Room
-		    generateBtn.addEventListener('click', async () => {
-		        generateBtn.innerText = "Generating...";
-		        generateBtn.disabled = true;
-		
-		        const code = Math.random().toString(36).substring(2, 7).toUpperCase();
-		        currentRoom = code;
-		        
-		        try {
-		            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
-		                status: 'waiting', 
-		                trigger: 'idle', 
-		                timestamp: serverTimestamp() 
-		            });
-		
-		            roomSetup.classList.add('hidden');
-		            roomActive.classList.remove('hidden');
-		            roomActive.classList.add('flex');
-		            displayCode.innerText = code; 
-		            listenToRoom(code);
-		        } catch(e) {
-		            console.error(e);
-		            alert("Could not create room. Check Firebase config.");
-		        } finally {
-		            generateBtn.innerText = "Generate Room Code";
-		            generateBtn.disabled = false;
-		        }
-		    });
+			generateBtn.addEventListener('click', async () => {
+			    generateBtn.innerText = "Generating...";
+			    generateBtn.disabled = true;
+			
+			    const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+			    currentRoom = code;
+			
+			    // Create a timeout promise that rejects after 5 seconds
+			    const timeout = new Promise((_, reject) => 
+			        setTimeout(() => reject(new Error("Database request timed out. Check your connection or VPN.")), 5000)
+			    );
+			
+			    try {
+			        // Race the database call against the timeout
+			        await Promise.race([
+			            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
+			                status: 'waiting', 
+			                trigger: 'idle', 
+			                timestamp: serverTimestamp() 
+			            }),
+			            timeout
+			        ]);
+			
+			        console.log("Success!");
+			        roomSetup.classList.add('hidden');
+			        roomActive.classList.remove('hidden');
+			        roomActive.classList.add('flex');
+			        displayCode.innerText = code; 
+			        listenToRoom(code);
+			    } catch(e) {
+			        console.error("DEBUG ERROR:", e);
+			        alert("Failed: " + e.message);
+			    } finally {
+			        generateBtn.innerText = "Generate Room Code";
+			        generateBtn.disabled = false;
+			    }
+			});
 		
 		    // Join Room
 		    joinBtn.addEventListener('click', async () => {
