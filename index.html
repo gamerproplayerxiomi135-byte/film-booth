@@ -86,21 +86,32 @@
                 });
             }
 
-			document.getElementById('generate-btn').addEventListener('click', () => { // Removed 'async'
+			document.getElementById('generate-btn').addEventListener('click', async () => {
+			    const btn = document.getElementById('generate-btn');
+			    btn.innerText = "Generating..."; // Visual feedback
+			    btn.disabled = true;
+			
 			    const code = Math.random().toString(36).substring(2, 7).toUpperCase();
 			    currentRoom = code;
 			    
-			    // Perform the write in the background without blocking the UI
-			    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
-			        status: 'waiting', trigger: 'idle', timestamp: serverTimestamp() 
-			    }).catch(e => console.error("Database error", e));
+			    // Continue with the database logic
+			    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
+			        status: 'waiting', 
+			        trigger: 'idle', 
+			        timestamp: serverTimestamp() 
+			    });
 			
 			    roomSetup.classList.add('hidden');
 			    roomActive.classList.remove('hidden');
 			    roomActive.classList.add('flex');
-			    displayCode.innerText = code;
+			    
+			    // This is where your code appears:
+			    displayCode.innerText = code; 
+			    
 			    listenToRoom(code);
-});
+			    btn.innerText = "Generate Room Code";
+			    btn.disabled = false;
+			});
 			    // ...
 			});
 
