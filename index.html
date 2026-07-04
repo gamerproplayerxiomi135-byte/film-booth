@@ -86,15 +86,21 @@
                 });
             }
 
-			document.getElementById('generate-btn').addEventListener('click', async () => {
+			document.getElementById('generate-btn').addEventListener('click', () => { // Removed 'async'
 			    const code = Math.random().toString(36).substring(2, 7).toUpperCase();
 			    currentRoom = code;
-			    // THIS LINE IS THE DATABASE INTERACTION
-			    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
-			        status: 'waiting', 
-			        trigger: 'idle', 
-			        timestamp: serverTimestamp() 
-			    });
+			    
+			    // Perform the write in the background without blocking the UI
+			    setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
+			        status: 'waiting', trigger: 'idle', timestamp: serverTimestamp() 
+			    }).catch(e => console.error("Database error", e));
+			
+			    roomSetup.classList.add('hidden');
+			    roomActive.classList.remove('hidden');
+			    roomActive.classList.add('flex');
+			    displayCode.innerText = code;
+			    listenToRoom(code);
+});
 			    // ...
 			});
 
