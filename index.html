@@ -42,154 +42,100 @@
         }).catch((error) => console.error("Auth Error:", error));
 
         // UI Elements assigned dynamically after page load
-        window.addEventListener('DOMContentLoaded', () => {
-            const roomSetup = document.getElementById('room-setup');
-            const roomActive = document.getElementById('room-active');
-            const displayCode = document.getElementById('display-room-code');
-            const roomStatus = document.getElementById('room-status');
-            const statusDot = document.getElementById('status-dot');
-            const startBtn = document.getElementById('start-btn');
-
-            function generateRandomCode() {
-                // Generates a random 5-character string (A-Z, 0-9)
-                return Math.random().toString(36).substring(2, 7).toUpperCase();
-            }
-
-            function listenToRoom(code) {
-                if (unsubscribe) unsubscribe();
-                
-                unsubscribe = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), (docSnapshot) => {
-                    const data = docSnapshot.data();
-                    if (!data) return;
-
-                    // Update UI if partner joins
-                    if (data.status === 'ready') {
-                        roomStatus.innerText = "Partner Connected!";
-                        roomStatus.className = "text-sm font-semibold text-emerald-400";
-                        statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
-                    }
-
-                    // If the other person clicks start
-                    if (data.trigger === 'start') {
-                        // Ensure we aren't already taking pictures
-                        if (typeof window.isCapturing !== 'undefined' && window.isCapturing === false) {
-                            console.log("Partner triggered the booth!");
-                            
-                            // Reset trigger to idle so it doesn't loop
-                            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { trigger: 'idle' }).catch(e=>{});
-                            
-                            if(typeof window.startSequence === 'function') {
-                                 window.startSequence();
-                            }
-                        }
-                    }
-                });
-            }
-
-			document.getElementById('generate-btn').addEventListener('click', async () => {
-			    const btn = document.getElementById('generate-btn');
-			    btn.innerText = "Generating..."; // Visual feedback
-			    btn.disabled = true;
-			
-			    const code = Math.random().toString(36).substring(2, 7).toUpperCase();
-			    currentRoom = code;
-			    
-			    // Continue with the database logic
-			    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
-			        status: 'waiting', 
-			        trigger: 'idle', 
-			        timestamp: serverTimestamp() 
-			    });
-			
-			    roomSetup.classList.add('hidden');
-			    roomActive.classList.remove('hidden');
-			    roomActive.classList.add('flex');
-			    
-			    // This is where your code appears:
-			    displayCode.innerText = code; 
-			    
-			    listenToRoom(code);
-			    btn.innerText = "Generate Room Code";
-			    btn.disabled = false;
-			});
-			    // ...
-			});
-
-                    // Swap UI to active room mode
-                    roomSetup.classList.add('hidden');
-                    roomActive.classList.remove('hidden');
-                    roomActive.classList.add('flex');
-                    displayCode.innerText = code;
-                    
-                    roomStatus.innerText = "Waiting for partner...";
-                    roomStatus.className = "text-sm font-semibold text-yellow-500";
-                    statusDot.className = "w-3 h-3 rounded-full bg-yellow-500 animate-pulse";
-                    
-                    listenToRoom(code);
-                } catch(e) {
-                    console.error(e);
-                    alert("Could not create room. Check Firebase config.");
-                }
-            });
-
-            document.getElementById('join-btn').addEventListener('click', async () => {
-                if (!user) return alert("Still connecting to database...");
-                const input = document.getElementById('join-code-input').value.trim().toUpperCase();
-                if (!input) return alert("Please enter a code");
-
-                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', input);
-                
-                try {
-                    const roomDoc = await getDoc(roomRef);
-                    if (roomDoc.exists()) {
-                        currentRoom = input;
-                        
-                        // Mark room as ready for both users to see
-                        await updateDoc(roomRef, { status: 'ready' });
-
-                        // Swap UI
-                        roomSetup.classList.add('hidden');
-                        roomActive.classList.remove('hidden');
-                        roomActive.classList.add('flex');
-                        displayCode.innerText = input;
-                        
-                        roomStatus.innerText = "Partner Connected!";
-                        roomStatus.className = "text-sm font-semibold text-emerald-400";
-                        statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
-
-                        listenToRoom(input);
-                    } else {
-                        alert("Room not found. Check the code and try again.");
-                    }
-                } catch(e) {
-                    console.error(e);
-                    alert("Error joining room.");
-                }
-            });
-
-            document.getElementById('copy-code-btn').addEventListener('click', () => {
-                // Compatible copy-to-clipboard function
-                const tempInput = document.createElement("input");
-                tempInput.value = currentRoom;
-                document.body.appendChild(tempInput);
-                tempInput.select();
-                document.execCommand("copy");
-                document.body.removeChild(tempInput);
-                
-                const btn = document.getElementById('copy-code-btn');
-                btn.innerText = "✅";
-                setTimeout(() => btn.innerText = "📋", 2000);
-            });
-
-            document.getElementById('leave-room-btn').addEventListener('click', () => {
-                if (unsubscribe) unsubscribe();
-                currentRoom = null;
-                roomSetup.classList.remove('hidden');
-                roomActive.classList.add('hidden');
-                roomActive.classList.remove('flex');
-                document.getElementById('join-code-input').value = '';
-            });
-        });
+		window.addEventListener('DOMContentLoaded', () => {
+		    // UI Elements
+		    const roomSetup = document.getElementById('room-setup');
+		    const roomActive = document.getElementById('room-active');
+		    const displayCode = document.getElementById('display-room-code');
+		    const roomStatus = document.getElementById('room-status');
+		    const statusDot = document.getElementById('status-dot');
+		    
+		    // Buttons
+		    const generateBtn = document.getElementById('generate-btn');
+		    const joinBtn = document.getElementById('join-btn');
+		    const copyBtn = document.getElementById('copy-code-btn');
+		    const leaveBtn = document.getElementById('leave-room-btn');
+		
+		    // Generate Room
+		    generateBtn.addEventListener('click', async () => {
+		        generateBtn.innerText = "Generating...";
+		        generateBtn.disabled = true;
+		
+		        const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+		        currentRoom = code;
+		        
+		        try {
+		            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
+		                status: 'waiting', 
+		                trigger: 'idle', 
+		                timestamp: serverTimestamp() 
+		            });
+		
+		            roomSetup.classList.add('hidden');
+		            roomActive.classList.remove('hidden');
+		            roomActive.classList.add('flex');
+		            displayCode.innerText = code; 
+		            listenToRoom(code);
+		        } catch(e) {
+		            console.error(e);
+		            alert("Could not create room. Check Firebase config.");
+		        } finally {
+		            generateBtn.innerText = "Generate Room Code";
+		            generateBtn.disabled = false;
+		        }
+		    });
+		
+		    // Join Room
+		    joinBtn.addEventListener('click', async () => {
+		        if (!user) return alert("Still connecting to database...");
+		        const input = document.getElementById('join-code-input').value.trim().toUpperCase();
+		        if (!input) return alert("Please enter a code");
+		
+		        const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', input);
+		        
+		        try {
+		            const roomDoc = await getDoc(roomRef);
+		            if (roomDoc.exists()) {
+		                currentRoom = input;
+		                await updateDoc(roomRef, { status: 'ready' });
+		
+		                roomSetup.classList.add('hidden');
+		                roomActive.classList.remove('hidden');
+		                roomActive.classList.add('flex');
+		                displayCode.innerText = input;
+		                
+		                roomStatus.innerText = "Partner Connected!";
+		                roomStatus.className = "text-sm font-semibold text-emerald-400";
+		                statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
+		
+		                listenToRoom(input);
+		            } else {
+		                alert("Room not found. Check the code and try again.");
+		            }
+		        } catch(e) {
+		            console.error(e);
+		            alert("Error joining room.");
+		        }
+		    });
+		
+		    // Copy Code
+		    copyBtn.addEventListener('click', () => {
+		        navigator.clipboard.writeText(currentRoom).then(() => {
+		            copyBtn.innerText = "✅";
+		            setTimeout(() => copyBtn.innerText = "📋", 2000);
+		        });
+		    });
+		
+		    // Leave Room
+		    leaveBtn.addEventListener('click', () => {
+		        if (unsubscribe) unsubscribe();
+		        currentRoom = null;
+		        roomSetup.classList.remove('hidden');
+		        roomActive.classList.add('hidden');
+		        roomActive.classList.remove('flex');
+		        document.getElementById('join-code-input').value = '';
+		    });
+		});
 
         // Function called when the user clicks the "Sync & Start Booth" button
         window.triggerPartner = async () => {
