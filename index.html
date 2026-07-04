@@ -3,9 +3,208 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Retro Film Photobooth</title>
+    <title>PhotoBoth</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Courier+Prime&family=Dancing+Script:wght@600;700&display=swap" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ⚠️ REPLACE THIS ENTIRE OBJECT WITH YOUR FIREBASE CONFIGURATION ⚠️
+        const firebaseConfig = {
+            apiKey: "AIzaSyCdACV1qmBuBR0XE8wonlToMcyhpFzQSN4",
+            authDomain: "photoboth-68eed.firebaseapp.com",
+            projectId: "photoboth-68eed",
+            storageBucket: "photoboth-68eed.firebasestorage.app",
+            messagingSenderId: "231382755509",
+            appId: "1:231382755509:web:7f17acc226d8452be336fc",
+            measurementId: "G-RNV52XTFBZ"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        const appId = 'ldr-booth-external';
+
+        let user = null;
+        let unsubscribe = null;
+        let currentRoom = null;
+
+        // Sign in anonymously so users can write to the database
+        signInAnonymously(auth).then(() => {
+            onAuthStateChanged(auth, (u) => { 
+                user = u; 
+                console.log("User signed in:", user.uid);
+            });
+        }).catch((error) => console.error("Auth Error:", error));
+
+        // UI Elements assigned dynamically after page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const roomSetup = document.getElementById('room-setup');
+            const roomActive = document.getElementById('room-active');
+            const displayCode = document.getElementById('display-room-code');
+            const roomStatus = document.getElementById('room-status');
+            const statusDot = document.getElementById('status-dot');
+            const startBtn = document.getElementById('start-btn');
+
+            function generateRandomCode() {
+                // Generates a random 5-character string (A-Z, 0-9)
+                return Math.random().toString(36).substring(2, 7).toUpperCase();
+            }
+
+            function listenToRoom(code) {
+                if (unsubscribe) unsubscribe();
+                
+                unsubscribe = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), (docSnapshot) => {
+                    const data = docSnapshot.data();
+                    if (!data) return;
+
+                    // Update UI if partner joins
+                    if (data.status === 'ready') {
+                        roomStatus.innerText = "Partner Connected!";
+                        roomStatus.className = "text-sm font-semibold text-emerald-400";
+                        statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
+                    }
+
+                    // If the other person clicks start
+                    if (data.trigger === 'start') {
+                        // Ensure we aren't already taking pictures
+                        if (typeof window.isCapturing !== 'undefined' && window.isCapturing === false) {
+                            console.log("Partner triggered the booth!");
+                            
+                            // Reset trigger to idle so it doesn't loop
+                            updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { trigger: 'idle' }).catch(e=>{});
+                            
+                            if(typeof window.startSequence === 'function') {
+                                 window.startSequence();
+                            }
+                        }
+                    }
+                });
+            }
+
+            document.getElementById('generate-btn').addEventListener('click', async () => {
+                if (!user) return alert("Still connecting to database... please wait a moment.");
+                
+                const code = generateRandomCode();
+                currentRoom = code;
+                
+                try {
+                    // Create the waiting room in the database
+                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
+                        status: 'waiting',
+                        trigger: 'idle',
+                        timestamp: serverTimestamp() 
+                    });
+
+                    // Swap UI to active room mode
+                    roomSetup.classList.add('hidden');
+                    roomActive.classList.remove('hidden');
+                    roomActive.classList.add('flex');
+                    displayCode.innerText = code;
+                    
+                    roomStatus.innerText = "Waiting for partner...";
+                    roomStatus.className = "text-sm font-semibold text-yellow-500";
+                    statusDot.className = "w-3 h-3 rounded-full bg-yellow-500 animate-pulse";
+                    
+                    listenToRoom(code);
+                } catch(e) {
+                    console.error(e);
+                    alert("Could not create room. Check Firebase config.");
+                }
+            });
+
+            document.getElementById('join-btn').addEventListener('click', async () => {
+                if (!user) return alert("Still connecting to database...");
+                const input = document.getElementById('join-code-input').value.trim().toUpperCase();
+                if (!input) return alert("Please enter a code");
+
+                const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', input);
+                
+                try {
+                    const roomDoc = await getDoc(roomRef);
+                    if (roomDoc.exists()) {
+                        currentRoom = input;
+                        
+                        // Mark room as ready for both users to see
+                        await updateDoc(roomRef, { status: 'ready' });
+
+                        // Swap UI
+                        roomSetup.classList.add('hidden');
+                        roomActive.classList.remove('hidden');
+                        roomActive.classList.add('flex');
+                        displayCode.innerText = input;
+                        
+                        roomStatus.innerText = "Partner Connected!";
+                        roomStatus.className = "text-sm font-semibold text-emerald-400";
+                        statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
+
+                        listenToRoom(input);
+                    } else {
+                        alert("Room not found. Check the code and try again.");
+                    }
+                } catch(e) {
+                    console.error(e);
+                    alert("Error joining room.");
+                }
+            });
+
+            document.getElementById('copy-code-btn').addEventListener('click', () => {
+                // Compatible copy-to-clipboard function
+                const tempInput = document.createElement("input");
+                tempInput.value = currentRoom;
+                document.body.appendChild(tempInput);
+                tempInput.select();
+                document.execCommand("copy");
+                document.body.removeChild(tempInput);
+                
+                const btn = document.getElementById('copy-code-btn');
+                btn.innerText = "✅";
+                setTimeout(() => btn.innerText = "📋", 2000);
+            });
+
+            document.getElementById('leave-room-btn').addEventListener('click', () => {
+                if (unsubscribe) unsubscribe();
+                currentRoom = null;
+                roomSetup.classList.remove('hidden');
+                roomActive.classList.add('hidden');
+                roomActive.classList.remove('flex');
+                document.getElementById('join-code-input').value = '';
+            });
+        });
+
+        // Function called when the user clicks the "Sync & Start Booth" button
+        window.triggerPartner = async () => {
+            // If they are not in a room, just start locally for a solo session
+            if (!currentRoom) {
+                if(typeof window.startSequence === 'function') window.startSequence();
+                return;
+            }
+            if (!user) return;
+
+            console.log("Triggering partner sequence for room:", currentRoom);
+            
+            try {
+                 // Tell the partner's browser to start
+                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { 
+                    trigger: 'start',
+                    timestamp: serverTimestamp() 
+                });
+                
+                // Start the sequence locally as well
+                if(typeof window.startSequence === 'function') {
+                     window.startSequence();
+                }
+            } catch (error) {
+                 console.error("Error writing to database:", error);
+                 alert("Could not connect to the synced room. Check your internet connection.");
+            }
+        };
+    </script>
+
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -49,9 +248,17 @@
 </head>
 <body class="min-h-screen flex flex-col items-center py-10 px-4">
 
-    <header class="text-center mb-10 w-full max-w-5xl">
-        <h1 class="text-4xl md:text-5xl font-bold tracking-tight mb-2 text-white">FILM BOOTH</h1>
-        <p class="text-gray-400">Select a film, strike 4 poses, and get your strip.</p>
+    <!-- UPDATED HEADER WITH NEW COPY -->
+    <header class="text-center mb-10 w-full max-w-2xl mx-auto px-4">
+        <h1 class="text-4xl md:text-5xl font-bold tracking-tight mb-4 text-white drop-shadow-md">PHOTOBOTH</h1>
+        <div class="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 shadow-lg">
+            <p class="text-gray-200 text-base md:text-lg font-medium mb-1">
+                Distance means nothing when the shutter clicks.
+            </p>
+            <p class="text-gray-400 text-sm">
+                Bridge the gap and capture a shared photo strip from anywhere in the world.
+            </p>
+        </div>
     </header>
 
     <main class="w-full max-w-6xl flex flex-col md:flex-row gap-8 items-start justify-center">
@@ -59,6 +266,44 @@
         <!-- Left Column: Camera and Controls -->
         <div class="w-full md:w-1/2 lg:w-[500px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
             
+            <!-- Room Sync Panel -->
+            <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-inner">
+                <h3 class="text-xs font-bold text-indigo-400 uppercase tracking-widest block mb-3 border-b border-gray-700 pb-2">Virtual Booth Sync</h3>
+                
+                <!-- Setup Mode: Generate or Join -->
+                <div id="room-setup" class="flex flex-col gap-4">
+                    <button id="generate-btn" class="w-full py-2.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold rounded transition-colors shadow-sm flex justify-center items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                        Generate a Room Code
+                    </button>
+                    
+                    <div class="flex items-center gap-2">
+                        <hr class="flex-grow border-gray-700">
+                        <span class="text-xs text-gray-500 uppercase font-semibold">OR</span>
+                        <hr class="flex-grow border-gray-700">
+                    </div>
+                    
+                    <div class="flex gap-2">
+                        <input type="text" id="join-code-input" placeholder="Enter Partner's Code" class="flex-grow p-2.5 bg-gray-900 rounded border border-gray-700 text-white focus:ring-2 focus:ring-indigo-500 uppercase text-center font-mono font-bold tracking-widest text-sm">
+                        <button id="join-btn" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded transition-colors shadow-sm">Join</button>
+                    </div>
+                </div>
+
+                <!-- Active Mode: Connected or Waiting -->
+                <div id="room-active" class="hidden flex-col gap-3 items-center text-center">
+                    <p class="text-xs text-gray-400 uppercase tracking-wider">Room Code</p>
+                    <div class="flex justify-center items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700 w-full max-w-[250px]">
+                        <h2 id="display-room-code" class="text-3xl font-mono font-bold tracking-widest text-white">----</h2>
+                        <button id="copy-code-btn" class="p-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" title="Copy Code">📋</button>
+                    </div>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></span>
+                        <p id="room-status" class="text-sm font-semibold text-yellow-500">Waiting for partner...</p>
+                    </div>
+                    <button id="leave-room-btn" class="text-xs text-gray-500 hover:text-red-400 mt-2 underline transition-colors">Leave Room</button>
+                </div>
+            </div>
+
             <!-- Camera Viewfinder -->
             <div id="camera-container" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner min-h-[300px] transition-all duration-300">
                 <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline></video>
@@ -126,19 +371,19 @@
                     <label for="countdown-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Countdown Timer</label>
                     <select id="countdown-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
                         <option value="3">3 Seconds</option>
-                        <option value="5">5 Seconds</option>
-                        <option value="10" selected>10 Seconds</option>
-                        <option value="20">20 Seconds</option>
-                        <option value="30">30 Seconds</option>
+                        <option value="5" selected>5 Seconds</option>
+                        <option value="10">10 Seconds</option>
+			<option value="15">15 Seconds</option>
+			<option value="30"> Seconds</option>
                     </select>
                 </div>
 
-                <button id="start-btn" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-lg transition-colors shadow-lg hover:shadow-indigo-500/25 flex items-center justify-center gap-2">
+                <button id="start-btn" onclick="triggerPartner()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-lg transition-colors shadow-lg hover:shadow-indigo-500/25 flex items-center justify-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-                    Start Booth (4 Photos)
+                    Sync & Start Booth
                 </button>
                 
-                <p id="timer-helper-text" class="text-xs text-center text-gray-500 mt-2">Provides a 10-second timer between each shot.</p>
+                <p id="timer-helper-text" class="text-xs text-center text-gray-500 mt-2">Provides a 5-second timer between each shot.</p>
 
                 <div id="live-preview-container" class="hidden mt-2">
                     <p class="text-xs text-center text-gray-500 uppercase tracking-wider mb-1">Just Captured</p>
@@ -202,10 +447,11 @@
         const livePreviewContainer = document.getElementById('live-preview-container');
         const livePreview = document.getElementById('live-preview');
         
-        // Strip Configuration settings (Upscaled for High-Res Download)
+        // Expose startSequence to the window object so the Firebase script can call it
+        window.isCapturing = false;
+
+        // Strip Configuration settings
         const config = {
-            totalPhotos: 4,
-            countdownSeconds: 10,
             videoWidth: 1280,  
             videoHeight: 720, 
             stripWidth: 1000, 
@@ -244,9 +490,158 @@
 
         const delay = ms => new Promise(res => setTimeout(res, ms));
 
-        async function startSequence() {
-            if (isCapturing) return;
-            isCapturing = true;
+        function captureFrame() {
+            const frameCanvas = document.createElement('canvas');
+            frameCanvas.width = config.videoWidth;
+            frameCanvas.height = config.videoHeight;
+            const ctx = frameCanvas.getContext('2d');
+            
+            // Mirror the image horizontally to match what the user sees
+            ctx.translate(config.videoWidth, 0);
+            ctx.scale(-1, 1);
+            
+            // Apply current filter
+            ctx.filter = filterSelect.value;
+            
+            ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
+            
+            // Un-mirror and un-filter before returning so it's a clean capture
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.filter = 'none';
+
+            capturedFrames.push(frameCanvas);
+
+            // Update live preview
+            livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8);
+            livePreviewContainer.classList.remove('hidden');
+        }
+
+        function flashScreen() {
+            flashOverlay.classList.remove('flash-active');
+            void flashOverlay.offsetWidth; // Trigger reflow
+            flashOverlay.classList.add('flash-active');
+        }
+
+        async function runCountdown() {
+            countdownOverlay.classList.remove('hidden');
+            for (let i = config.countdownSeconds; i > 0; i--) {
+                countdownOverlay.innerText = i;
+                await delay(1000);
+            }
+            countdownOverlay.classList.add('hidden');
+        }
+
+        function renderStrip() {
+            const totalPhotos = capturedFrames.length;
+            if (totalPhotos === 0) return;
+
+            // Calculate dimensions based on the aspect ratio of the captured frames
+            const frameAspect = config.videoWidth / config.videoHeight;
+            
+            // Set the width of the frame on the strip (accounting for padding)
+            const photoWidth = config.stripWidth - (config.padding * 2);
+            const photoHeight = photoWidth / frameAspect;
+
+            // Calculate total height of the canvas
+            // Padding top + (photo heights + padding between photos) + extra bottom padding for text
+            const totalHeight = config.padding + (totalPhotos * photoHeight) + ((totalPhotos - 1) * config.padding) + config.bottomPadding;
+
+            stripCanvas.width = config.stripWidth;
+            stripCanvas.height = totalHeight;
+
+            const design = stripDesignSelect.value;
+            let textColor = '#000000';
+
+            // Base Background
+            if (design === 'dark') {
+                stripCtx.fillStyle = '#121212';
+                textColor = '#ffffff';
+            } else if (design === 'coffee') {
+                stripCtx.fillStyle = '#F4ECD8'; // Warm parchment
+            } else if (design === 'flowers') {
+                stripCtx.fillStyle = '#fffde7'; // Soft yellow
+            } else {
+                stripCtx.fillStyle = '#ffffff'; // Classic white
+            }
+            
+            stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
+
+            // Pattern overlays
+            if (design === 'grid') {
+                stripCtx.strokeStyle = '#bae6fd'; // Light blue
+                stripCtx.lineWidth = 2;
+                for(let x=0; x<stripCanvas.width; x+=40) {
+                    stripCtx.beginPath(); stripCtx.moveTo(x,0); stripCtx.lineTo(x,stripCanvas.height); stripCtx.stroke();
+                }
+                for(let y=0; y<stripCanvas.height; y+=40) {
+                    stripCtx.beginPath(); stripCtx.moveTo(0,y); stripCtx.lineTo(stripCanvas.width,y); stripCtx.stroke();
+                }
+            } else if (design === 'coffee') {
+                // Add some "stains"
+                for(let i=0; i<400; i++) {
+                    stripCtx.beginPath(); 
+                    stripCtx.arc(Math.random()*stripCanvas.width, Math.random()*stripCanvas.height, Math.random()*2, 0, Math.PI*2);
+                    stripCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
+                    stripCtx.fill();
+                }
+            } else if (design === 'flowers') {
+                stripCtx.font = '50px sans-serif';
+                stripCtx.textAlign = 'center';
+                for(let i=0; i<40; i++) {
+                    stripCtx.fillText('🌸', Math.random()*stripCanvas.width, Math.random()*stripCanvas.height);
+                }
+            }
+
+            // Draw photos
+            capturedFrames.forEach((frame, index) => {
+                const yPos = config.padding + (index * (photoHeight + config.padding));
+                
+                // Draw slight shadow for depth
+                stripCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                stripCtx.shadowBlur = 10;
+                stripCtx.shadowOffsetX = 0;
+                stripCtx.shadowOffsetY = 4;
+                
+                stripCtx.drawImage(frame, config.padding, yPos, photoWidth, photoHeight);
+                
+                // Reset shadow for next operations
+                stripCtx.shadowColor = 'transparent';
+                stripCtx.shadowBlur = 0;
+            });
+
+            // Draw text at the bottom
+            stripCtx.fillStyle = textColor;
+            stripCtx.textAlign = 'center';
+            stripCtx.textBaseline = 'middle';
+            
+            // Main text
+            stripCtx.font = 'bold 48px "Courier Prime", monospace';
+            const textYPos = stripCanvas.height - (config.bottomPadding / 2) - 10;
+            stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
+            
+            // Date text
+            stripCtx.font = '24px "Courier Prime", monospace';
+            const today = new Date();
+            const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            stripCtx.fillText(dateStr, stripCanvas.width / 2, textYPos + 40);
+
+            // Show canvas and download button
+            stripCanvas.classList.remove('hidden');
+            stripPlaceholder.classList.add('hidden');
+            downloadBtn.classList.remove('hidden');
+        }
+
+        function downloadStrip() {
+            if (capturedFrames.length === 0) return;
+            const link = document.createElement('a');
+            link.download = `film-strip-${Date.now()}.png`;
+            link.href = stripCanvas.toDataURL('image/png', 1.0);
+            link.click();
+        }
+
+        window.startSequence = async function() {
+            if (window.isCapturing) return;
+            window.isCapturing = true;
             capturedFrames = [];
             
             config.totalPhotos = parseInt(photoCountSelect.value, 10);
@@ -329,7 +724,7 @@
             };
 
             renderStrip();
-            isCapturing = false;
+            window.isCapturing = false;
             
             startBtn.disabled = false;
             photoCountSelect.disabled = false;
@@ -342,192 +737,13 @@
             startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Retake (${photoText})`;
         }
 
-        async function runCountdown() {
-            livePreviewContainer.classList.add('hidden');
-            countdownOverlay.classList.remove('hidden');
-            for (let i = config.countdownSeconds; i > 0; i--) {
-                countdownOverlay.innerText = i;
-                countdownOverlay.style.transform = 'scale(1.2)';
-                setTimeout(() => countdownOverlay.style.transform = 'scale(1)', 100);
-                
-                await delay(1000);
-            }
-            countdownOverlay.classList.add('hidden');
-        }
-
-        function flashScreen() {
-            flashOverlay.classList.remove('flash-active');
-            void flashOverlay.offsetWidth; 
-            flashOverlay.classList.add('flash-active');
-        }
-
-        function captureFrame() {
-            const tempCanvas = document.createElement('canvas');
-            tempCanvas.width = config.videoWidth;
-            tempCanvas.height = config.videoHeight;
-            const ctx = tempCanvas.getContext('2d');
-
-            ctx.translate(tempCanvas.width, 0);
-            ctx.scale(-1, 1);
-            ctx.filter = filterSelect.value;
-            ctx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
-            capturedFrames.push(tempCanvas);
-
-            livePreview.src = tempCanvas.toDataURL('image/png');
-            livePreviewContainer.classList.remove('hidden');
-        }
-
-        function drawStripBackground(ctx, width, height, design) {
-            let textColors = { main: '#333333', sub: '#666666' };
-
-            if (design === 'white') {
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(0, 0, width, height);
-                addNoise(ctx, width, height);
-            } 
-            else if (design === 'dark') {
-                ctx.fillStyle = '#121212';
-                ctx.fillRect(0, 0, width, height);
-                addNoise(ctx, width, height);
-                textColors = { main: '#f3f4f6', sub: '#9ca3af' };
-            } 
-            else if (design === 'coffee') {
-                ctx.fillStyle = '#F4ECD8'; 
-                ctx.fillRect(0, 0, width, height);
-                for(let i = 0; i < 400; i++) {
-                    ctx.beginPath();
-                    let radius = Math.random() > 0.95 ? Math.random() * 3 + 1 : Math.random() * 1.5;
-                    ctx.arc(Math.random() * width, Math.random() * height, radius, 0, Math.PI * 2);
-                    let alpha = Math.random() * 0.15 + 0.05;
-                    ctx.fillStyle = `rgba(${139 + Math.random()*50}, ${69 + Math.random()*30}, ${19}, ${alpha})`;
-                    ctx.fill();
-                }
-                let grad = ctx.createRadialGradient(width/2, height/2, width*0.4, width/2, height/2, Math.max(width, height));
-                grad.addColorStop(0, 'rgba(0,0,0,0)');
-                grad.addColorStop(1, 'rgba(101, 67, 33, 0.15)');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, 0, width, height);
-                addNoise(ctx, width, height, 15);
-            } 
-            else if (design === 'flowers') {
-                let grad = ctx.createLinearGradient(0, 0, 0, height);
-                grad.addColorStop(0, '#e8f5e9');
-                grad.addColorStop(1, '#fffde7');
-                ctx.fillStyle = grad;
-                ctx.fillRect(0, 0, width, height);
-                const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                for(let i = 0; i < 60; i++) {
-                    let x = Math.random() * width;
-                    let y = Math.random() * height;
-                    let emoji = emojis[Math.floor(Math.random() * emojis.length)];
-                    let size = Math.random() * 50 + 30;
-                    ctx.font = `${size}px Arial`;
-                    ctx.globalAlpha = 0.6;
-                    ctx.save();
-                    ctx.translate(x, y);
-                    ctx.rotate(Math.random() * Math.PI * 2); 
-                    ctx.fillText(emoji, 0, 0);
-                    ctx.restore();
-                }
-                ctx.globalAlpha = 1.0;
-                ctx.textAlign = 'left';
-                ctx.textBaseline = 'alphabetic';
-            }
-            else if (design === 'grid') {
-                ctx.fillStyle = '#fafafa';
-                ctx.fillRect(0, 0, width, height);
-                ctx.strokeStyle = '#bae6fd'; 
-                ctx.lineWidth = 2;
-                for(let x = 0; x < width; x += 40) {
-                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
-                }
-                for(let y = 0; y < height; y += 40) {
-                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke();
-                }
-                ctx.strokeStyle = '#fbcfe8';
-                ctx.lineWidth = 6;
-                ctx.beginPath(); ctx.moveTo(80, 0); ctx.lineTo(80, height); ctx.stroke();
-            }
-
-            return textColors;
-        }
-
-        function addNoise(ctx, w, h, intensity = 4) {
-            const imageData = ctx.getImageData(0, 0, w, h);
-            const data = imageData.data;
-            for (let i = 0; i < data.length; i += 4) {
-                const noise = Math.random() * (intensity * 2) - intensity; 
-                data[i] = Math.min(255, data[i] + noise);   
-                data[i+1] = Math.min(255, data[i+1] + noise); 
-                data[i+2] = Math.min(255, data[i+2] + noise); 
-            }
-            ctx.putImageData(imageData, 0, 0);
-        }
-
-        function renderStrip() {
-            const numPhotos = capturedFrames.length;
-            if (numPhotos === 0) return;
-
-            const cellWidth = config.stripWidth - (config.padding * 2);
-            const aspectRatio = config.videoHeight / config.videoWidth;
-            const cellHeight = cellWidth * aspectRatio;
-
-            const gap = 20;
-            const totalHeight = config.padding + (numPhotos * cellHeight) + ((numPhotos - 1) * gap) + config.bottomPadding;
-
-            stripCanvas.width = config.stripWidth;
-            stripCanvas.height = totalHeight;
-
-            const textColors = drawStripBackground(stripCtx, stripCanvas.width, stripCanvas.height, stripDesignSelect.value);
-
-            capturedFrames.forEach((frameCanvas, i) => {
-                const y = config.padding + i * (cellHeight + gap);
-                stripCtx.drawImage(frameCanvas, config.padding, y, cellWidth, cellHeight);
-                stripCtx.strokeStyle = 'rgba(0,0,0,0.15)';
-                stripCtx.lineWidth = 2;
-                stripCtx.strokeRect(config.padding, y, cellWidth, cellHeight);
-            });
-
-            const footerY = totalHeight - config.bottomPadding / 2;
-            stripCtx.fillStyle = textColors.main;
-            
-            // Updated to Fancy Dancing Script
-            stripCtx.font = "bold 72px 'Dancing Script', cursive";
-            stripCtx.textAlign = 'center';
-            stripCtx.fillText('FILM BOOTH', stripCanvas.width / 2, footerY - 20);
-
-            stripCtx.fillStyle = textColors.sub;
-            stripCtx.font = "40px 'Dancing Script', cursive";
-            const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-            stripCtx.fillText(dateStr, stripCanvas.width / 2, footerY + 35);
-
-            stripCtx.textAlign = 'left';
-
-            stripPlaceholder.classList.add('hidden');
-            stripCanvas.classList.remove('hidden');
-            downloadBtn.classList.remove('hidden');
-        }
-
-        function downloadStrip() {
-            const dataURL = stripCanvas.toDataURL('image/png');
-            const link = document.createElement('a');
-            link.download = `photobooth-strip-${Date.now()}.png`;
-            link.href = dataURL;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }
-
-        startBtn.addEventListener('click', startSequence);
         downloadBtn.addEventListener('click', downloadStrip);
         
         photoCountSelect.addEventListener('change', () => {
             if (!isCapturing) {
                 const count = photoCountSelect.value;
                 const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
-                startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Start Booth (${photoText})`;
+                startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth (${photoText})`;
             }
         });
 
