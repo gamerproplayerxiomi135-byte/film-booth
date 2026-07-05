@@ -306,9 +306,9 @@
     <!-- UPDATED HEADER -->
     <header class="text-center mb-10 w-full max-w-2xl mx-auto px-4">
         <!-- Changed to Title Case and added cursive-title class -->
-        <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-4 text-white drop-shadow-md cursive-title">PhotoBoth</h1>
-       <div class="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 shadow-lg">
-            <p class="text-gray-200 mb-1">
+        <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-4 text-white drop-shadow-md cursive-title">Photoboth</h1>
+        <div class="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 shadow-lg">
+            <p class="text-gray-200 text-base md:text-lg font-medium mb-1">
                 A photo for both even if the distance is far.
             </p>
             <p class="text-gray-400 text-sm">
@@ -370,10 +370,9 @@
                     <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded">YOU</div>
                 </div>
                 <!-- Partner Camera -->
-                <div class="relative w-1/2 h-full bg-gray-800 flex items-center justify-center flex-shrink-0">
+                <div id="partner-camera-container" class="relative w-1/2 h-full bg-gray-800 flex items-center justify-center flex-shrink-0 hidden">
                     <video id="remote-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline></video>
                     <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded">PARTNER</div>
-                    <span id="remote-placeholder" class="text-gray-500 text-xs text-center px-4">Waiting for feed...</span>
                 </div>
             </div>
             
@@ -568,12 +567,6 @@
                     config.videoHeight = video.videoHeight;
                 });
 
-                // Hide the remote placeholder text once video plays (for styling)
-                remoteVideo.addEventListener('play', () => {
-                    const placeholder = document.getElementById('remote-placeholder');
-                    if(placeholder) placeholder.style.display = 'none';
-                });
-
             } catch (err) {
                 console.error("Camera access denied or unavailable:", err);
                 cameraError.classList.remove('hidden');
@@ -584,26 +577,62 @@
 
         const delay = ms => new Promise(res => setTimeout(res, ms));
 
+        // --- Helper Function for Center Cropping ---
+        function drawCenterCrop(ctx, sourceVid, targetX, targetY, targetW, targetH) {
+            if (!sourceVid.videoWidth || !sourceVid.videoHeight) return;
+            const sourceAspect = sourceVid.videoWidth / sourceVid.videoHeight;
+            const targetAspect = targetW / targetH;
+            
+            let sx, sy, sw, sh;
+            
+            if (sourceAspect > targetAspect) {
+                sh = sourceVid.videoHeight;
+                sw = sh * targetAspect;
+                sx = (sourceVid.videoWidth - sw) / 2;
+                sy = 0;
+            } else {
+                sw = sourceVid.videoWidth;
+                sh = sw / targetAspect;
+                sx = 0;
+                sy = (sourceVid.videoHeight - sh) / 2;
+            }
+            
+            ctx.drawImage(sourceVid, sx, sy, sw, sh, targetX, targetY, targetW, targetH);
+        }
+
+        function drawCombinedFeed(ctx, width, height, filterValue) {
+            ctx.save();
+            ctx.translate(width, 0);
+            ctx.scale(-1, 1);
+            ctx.filter = filterValue || 'none';
+            
+            const isPartnerConnected = !document.getElementById('partner-camera-container').classList.contains('hidden');
+
+            if (isPartnerConnected) {
+                const halfW = width / 2;
+                drawCenterCrop(ctx, video, halfW, 0, halfW, height);
+                drawCenterCrop(ctx, remoteVideo, 0, 0, halfW, height);
+                ctx.filter = 'none'; // reset for divider
+                ctx.strokeStyle = '#333'; 
+                ctx.lineWidth = 4;
+                ctx.beginPath(); 
+                ctx.moveTo(halfW, 0); 
+                ctx.lineTo(halfW, height); 
+                ctx.stroke();
+            } else {
+                drawCenterCrop(ctx, video, 0, 0, width, height);
+            }
+            ctx.restore();
+        }
+
         function captureFrame() {
             const frameCanvas = document.createElement('canvas');
             frameCanvas.width = config.videoWidth;
             frameCanvas.height = config.videoHeight;
             const ctx = frameCanvas.getContext('2d');
             
-            // Mirror the image horizontally to match what the user sees
-            ctx.translate(config.videoWidth, 0);
-            ctx.scale(-1, 1);
-            
-            // Apply current filter
-            ctx.filter = filterSelect.value;
-            
-            // We capture the LOCAL camera feed so each user gets a strip of themselves. 
-            // (They can screenshot the live UI if they want the side-by-side)
-            ctx.drawImage(video, 0, 0, config.videoWidth, config.videoHeight);
-            
-            // Un-mirror and un-filter before returning so it's a clean capture
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.filter = 'none';
+            // Use the combined feed helper
+            drawCombinedFeed(ctx, config.videoWidth, config.videoHeight, filterSelect.value);
 
             capturedFrames.push(frameCanvas);
 
@@ -678,7 +707,7 @@
                     stripCtx.fill();
                 }
             } else if (design === 'flowers') {
-                // New Custom Field of Flowers Code
+                // Custom Field of Flowers Code
                 let grad = stripCtx.createLinearGradient(0, 0, 0, stripCanvas.height);
                 grad.addColorStop(0, '#e8f5e9');
                 grad.addColorStop(1, '#fffde7');
@@ -823,12 +852,10 @@
             
             function drawRecordFrame() {
                 if (!isRecording) return;
-                recCtx.save();
-                recCtx.translate(recordCanvas.width, 0);
-                recCtx.scale(-1, 1);
-                recCtx.filter = filterSelect.value;
-                recCtx.drawImage(video, 0, 0, recordCanvas.width, recordCanvas.height);
-                recCtx.restore();
+                
+                // Directly use the drawCombinedFeed logic to ensure BTS Video looks identical to Strip
+                drawCombinedFeed(recCtx, recordCanvas.width, recordCanvas.height, filterSelect.value);
+                
                 requestAnimationFrame(drawRecordFrame);
             }
             
