@@ -47,7 +47,11 @@
             call.answer(localStream); // Answer the call with our local video stream
             call.on('stream', (remoteStream) => {
                 const remoteFeed = document.getElementById('remote-feed');
-                if (remoteFeed) remoteFeed.srcObject = remoteStream;
+                if (remoteFeed) {
+                    remoteFeed.srcObject = remoteStream;
+                    // Hide placeholder text when video arrives
+                    document.getElementById('remote-placeholder').style.display = 'none';
+                }
             });
         });
 
@@ -141,17 +145,18 @@
         
                         listenToRoom(input);
                         
+                        // SPLIT THE SCREEN IMMEDIATELY
+                        document.getElementById('partner-camera-container').classList.remove('hidden');
+                        document.getElementById('partner-camera-container').classList.add('flex');
+                        
                         // CALL THE HOST BROWSER AUTOMATICALLY
                         if (data.hostPeerId) {
                             console.log("Calling partner...");
                             
-                            // FORCE UI TO SPLIT SCREEN IMMEDIATELY UPON JOINING
-                            document.getElementById('partner-camera-container').classList.remove('hidden');
-                            document.getElementById('partner-camera-container').classList.add('flex');
-                            
                             currentCall = peer.call(data.hostPeerId, localStream);
                             currentCall.on('stream', (remoteStream) => {
                                 document.getElementById('remote-feed').srcObject = remoteStream;
+                                document.getElementById('remote-placeholder').style.display = 'none';
                             });
                         }
                     } else {
@@ -187,6 +192,10 @@
                 roomActive.classList.add('hidden');
                 roomActive.classList.remove('flex');
                 document.getElementById('join-code-input').value = '';
+                
+                // Unsplit screen
+                document.getElementById('partner-camera-container').classList.add('hidden');
+                document.getElementById('partner-camera-container').classList.remove('flex');
                 
                 roomStatus.innerText = "Waiting for partner...";
                 roomStatus.className = "text-sm font-semibold text-yellow-500";
@@ -238,7 +247,7 @@
                     if(roomStatus) roomStatus.className = "text-sm font-semibold text-emerald-400";
                     if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
                     
-                    // FORCE UI TO SPLIT SCREEN IMMEDIATELY WHEN PARTNER JOINS (For Host)
+                    // SPLIT THE SCREEN IMMEDIATELY WHEN PARTNER JOINS (For Host)
                     document.getElementById('partner-camera-container').classList.remove('hidden');
                     document.getElementById('partner-camera-container').classList.add('flex');
                 }
@@ -373,13 +382,13 @@
         <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner aspect-[4/3] md:aspect-video transition-all duration-300">
             <div class="flex w-full h-full divide-x divide-gray-700">
                 <!-- Local Camera -->
-                <div class="relative flex-1 h-full bg-gray-900 overflow-hidden transition-all duration-300">
+                <div class="relative flex-1 h-full bg-gray-900 flex-shrink-0">
                     <!-- Muted so you don't hear yourself -->
                     <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline muted></video>
-                    <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded">YOU</div>
+                    <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10">YOU</div>
                 </div>
                 <!-- Partner Camera -->
-                <div id="partner-camera-container" class="relative flex-1 h-full bg-gray-800 flex items-center justify-center hidden overflow-hidden transition-all duration-300">
+                <div id="partner-camera-container" class="relative flex-1 h-full bg-gray-800 flex items-center justify-center flex-shrink-0 hidden">
                     <video id="remote-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline></video>
                     <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10">PARTNER</div>
                     <span id="remote-placeholder" class="text-gray-500 text-xs text-center px-4 absolute">Waiting for video stream...<br><span class="text-[10px]">(Check camera permissions)</span></span>
@@ -546,6 +555,7 @@
         window.isCapturing = false;
 
         // Strip Configuration settings
+        // We set the canvas to match a standard 16:9 ratio, which matches the UI's aspect-video
         const config = {
             videoWidth: 1280,  
             videoHeight: 720, 
@@ -572,9 +582,12 @@
                     window.setLocalStream(stream);
                 }
 
+                // Wait for the video to load to get dimensions, but we will force the render
+                // aspect ratio to match the 16:9 box you see on screen to prevent mismatched cropping.
                 video.addEventListener('loadedmetadata', () => {
-                    config.videoWidth = video.videoWidth;
-                    config.videoHeight = video.videoHeight;
+                    // Intentionally using fixed 16:9 capture resolution so crop matches UI
+                    // config.videoWidth = video.videoWidth;
+                    // config.videoHeight = video.videoHeight;
                 });
 
             } catch (err) {
@@ -588,6 +601,7 @@
         const delay = ms => new Promise(res => setTimeout(res, ms));
 
         // --- Helper Function for Center Cropping ---
+        // This calculates how to draw a video so it fills the target area exactly like 'object-cover' in CSS
         function drawCenterCrop(ctx, sourceVid, targetX, targetY, targetW, targetH) {
             if (!sourceVid.videoWidth || !sourceVid.videoHeight) return;
             const sourceAspect = sourceVid.videoWidth / sourceVid.videoHeight;
@@ -616,20 +630,29 @@
             ctx.scale(-1, 1);
             ctx.filter = filterValue || 'none';
             
-            const isPartnerConnected = !document.getElementById('partner-camera-container').classList.contains('hidden');
+            // Check if the right-side partner container is active
+            const partnerContainer = document.getElementById('partner-camera-container');
+            const isPartnerConnected = !partnerContainer.classList.contains('hidden');
 
             if (isPartnerConnected) {
                 const halfW = width / 2;
+                
+                // Draw YOU on the right half mathematically (so it mirrors to the left)
                 drawCenterCrop(ctx, video, halfW, 0, halfW, height);
+                
+                // Draw PARTNER on the left half mathematically (so it mirrors to the right)
                 drawCenterCrop(ctx, remoteVideo, 0, 0, halfW, height);
+                
+                // Draw divider line
                 ctx.filter = 'none'; // reset for divider
-                ctx.strokeStyle = '#333'; 
+                ctx.strokeStyle = '#1f2937'; // Match Tailwind gray-800
                 ctx.lineWidth = 4;
                 ctx.beginPath(); 
                 ctx.moveTo(halfW, 0); 
                 ctx.lineTo(halfW, height); 
                 ctx.stroke();
             } else {
+                // SOLO MODE: Draw the video to fill the entire width and height exactly like the UI
                 drawCenterCrop(ctx, video, 0, 0, width, height);
             }
             ctx.restore();
