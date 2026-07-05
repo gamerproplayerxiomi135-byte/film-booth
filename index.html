@@ -346,39 +346,39 @@
                 </div>
 
                 <!-- Active Mode: Connected or Waiting -->
-                <div id="room-active" class="hidden flex-col gap-3 items-center text-center">
-                    <p class="text-xs text-gray-400 uppercase tracking-wider">Room Code</p>
-                    <div class="flex justify-center items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700 w-full max-w-[250px]">
-                        <h2 id="display-room-code" class="text-3xl font-mono font-bold tracking-widest text-white">----</h2>
-                        <button id="copy-code-btn" class="p-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" title="Copy Code">📋</button>
-                    </div>
-                    <div class="flex items-center gap-2 mt-1">
-                        <span id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></span>
-                        <p id="room-status" class="text-sm font-semibold text-yellow-500">Waiting for partner...</p>
-                    </div>
-                    <button id="leave-room-btn" class="text-xs text-gray-500 hover:text-red-400 mt-2 underline transition-colors">Leave Room</button>
+            <div id="room-active" class="hidden flex-col gap-3 items-center text-center">
+                <p class="text-xs text-gray-400 uppercase tracking-wider">Room Code</p>
+                <div class="flex justify-center items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700 w-full max-w-[250px]">
+                    <h2 id="display-room-code" class="text-3xl font-mono font-bold tracking-widest text-white">----</h2>
+                    <button id="copy-code-btn" class="p-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" title="Copy Code">📋</button>
+                </div>
+                <div class="flex items-center gap-2 mt-1">
+                    <span id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></span>
+                    <p id="room-status" class="text-sm font-semibold text-yellow-500">Waiting for partner...</p>
+                </div>
+                <button id="leave-room-btn" class="text-xs text-gray-500 hover:text-red-400 mt-2 underline transition-colors">Leave Room</button>
+            </div>
+        </div>
+
+        <!-- UPDATED Camera Viewfinder (Side-by-Side) -->
+        <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner aspect-[4/3] md:aspect-video transition-all duration-300">
+            <div class="flex w-full h-full divide-x divide-gray-700">
+                <!-- Local Camera -->
+                <div class="relative w-1/2 h-full bg-gray-900 flex-shrink-0">
+                    <!-- Muted so you don't hear yourself -->
+                    <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline muted></video>
+                    <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded">YOU</div>
+                </div>
+                <!-- Partner Camera -->
+                <div class="relative w-1/2 h-full bg-gray-800 flex items-center justify-center flex-shrink-0">
+                    <video id="remote-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline></video>
+                    <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded">PARTNER</div>
+                    <span id="remote-placeholder" class="text-gray-500 text-xs text-center px-4">Waiting for feed...</span>
                 </div>
             </div>
-
-            <!-- UPDATED Camera Viewfinder (Side-by-Side) -->
-            <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner min-h-[250px] transition-all duration-300">
-                <div class="grid grid-cols-2 h-full w-full bg-gray-900 divide-x divide-gray-700">
-                    <!-- Local Camera -->
-                    <div class="relative w-full h-full aspect-[4/3] md:aspect-video">
-                        <!-- Muted so you don't hear yourself -->
-                        <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline muted></video>
-                        <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded">YOU</div>
-                    </div>
-                    <!-- Partner Camera -->
-                    <div class="relative w-full h-full aspect-[4/3] md:aspect-video bg-gray-800 flex items-center justify-center">
-                        <video id="remote-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline></video>
-                        <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded">PARTNER</div>
-                        <span id="remote-placeholder" class="text-gray-500 text-xs text-center px-4">Waiting for feed...</span>
-                    </div>
-                </div>
-                
-                <!-- Countdown Overlay (Covers both feeds) -->
-                <div id="countdown-overlay" class="absolute inset-0 flex items-center justify-center text-7xl font-bold text-white drop-shadow-md hidden z-10 bg-black/30">
+            
+            <!-- Countdown Overlay (Covers both feeds) -->
+            <div id="countdown-overlay" class="absolute inset-0 flex items-center justify-center text-7xl font-bold text-white drop-shadow-md hidden z-10 bg-black/30">
                     3
                 </div>
 
@@ -653,10 +653,8 @@
                 textColor = '#ffffff';
             } else if (design === 'coffee') {
                 stripCtx.fillStyle = '#F4ECD8'; // Warm parchment
-            } else if (design === 'flowers') {
-                stripCtx.fillStyle = '#fffde7'; // Soft yellow
             } else {
-                stripCtx.fillStyle = '#ffffff'; // Classic white
+                stripCtx.fillStyle = '#ffffff'; // Default base (for grid, white, or flowers prior to gradient overlay)
             }
             
             stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
@@ -680,11 +678,31 @@
                     stripCtx.fill();
                 }
             } else if (design === 'flowers') {
-                stripCtx.font = '50px sans-serif';
+                // New Custom Field of Flowers Code
+                let grad = stripCtx.createLinearGradient(0, 0, 0, stripCanvas.height);
+                grad.addColorStop(0, '#e8f5e9');
+                grad.addColorStop(1, '#fffde7');
+                stripCtx.fillStyle = grad;
+                stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
+                const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
                 stripCtx.textAlign = 'center';
-                for(let i=0; i<40; i++) {
-                    stripCtx.fillText('🌸', Math.random()*stripCanvas.width, Math.random()*stripCanvas.height);
+                stripCtx.textBaseline = 'middle';
+                for(let i = 0; i < 60; i++) {
+                    let x = Math.random() * stripCanvas.width;
+                    let y = Math.random() * stripCanvas.height;
+                    let emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                    let size = Math.random() * 50 + 30;
+                    stripCtx.font = `${size}px Arial`;
+                    stripCtx.globalAlpha = 0.6;
+                    stripCtx.save();
+                    stripCtx.translate(x, y);
+                    stripCtx.rotate(Math.random() * Math.PI * 2); 
+                    stripCtx.fillText(emoji, 0, 0);
+                    stripCtx.restore();
                 }
+                stripCtx.globalAlpha = 1.0;
+                stripCtx.textAlign = 'left';
+                stripCtx.textBaseline = 'alphabetic';
             }
 
             // Draw photos
