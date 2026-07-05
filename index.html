@@ -63,6 +63,31 @@
             });
         }).catch((error) => console.error("Auth Error:", error));
 
+        // Reads the current control panel values directly from the DOM.
+        // Used both to seed a new room and to broadcast changes to a partner.
+        function getCurrentSettingsFromDOM() {
+            return {
+                photoCount: document.getElementById('photo-count-select')?.value,
+                countdown: document.getElementById('countdown-select')?.value,
+                filter: document.getElementById('filter-select')?.value,
+                design: document.getElementById('strip-design-select')?.value,
+                font: document.getElementById('font-select')?.value
+            };
+        }
+
+        // Pushes the current settings to the shared room so both partners stay in sync.
+        // Called by the classic script whenever a control changes.
+        window.syncSettingsToRoom = async function() {
+            if (!currentRoom) return;
+            try {
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), {
+                    settings: getCurrentSettingsFromDOM()
+                });
+            } catch (e) {
+                console.error("Failed to sync settings:", e);
+            }
+        };
+
         // UI Elements assigned dynamically after page load
         window.addEventListener('DOMContentLoaded', () => {
             // UI Elements
@@ -98,6 +123,7 @@
                             status: 'waiting', 
                             trigger: 'idle', 
                             hostPeerId: peer.id, // SAVE OUR PEER ID FOR THE PARTNER TO CALL
+                            settings: getCurrentSettingsFromDOM(), // SEED THE ROOM WITH OUR CURRENT CONTROLS
                             timestamp: serverTimestamp() 
                         }),
                         timeout
@@ -131,6 +157,11 @@
                     if (roomDoc.exists()) {
                         currentRoom = input;
                         const data = roomDoc.data();
+
+                        // Adopt the host's current camera settings immediately on joining
+                        if (data.settings && typeof window.applyRemoteSettings === 'function') {
+                            window.applyRemoteSettings(data.settings);
+                        }
                         
                         await updateDoc(roomRef, { status: 'ready' });
         
@@ -250,6 +281,11 @@
                     // SPLIT THE SCREEN IMMEDIATELY WHEN PARTNER JOINS (For Host)
                     document.getElementById('partner-camera-container').classList.remove('hidden');
                     document.getElementById('partner-camera-container').classList.add('flex');
+                }
+
+                // Keep camera settings (photo count, timer, filter, design, font) in sync
+                if (data.settings && typeof window.applyRemoteSettings === 'function') {
+                    window.applyRemoteSettings(data.settings);
                 }
         
                 // If the other person clicks start
@@ -553,6 +589,47 @@
         
         // Expose startSequence to the window object so the Firebase script can call it
         window.isCapturing = false;
+
+        // Applies settings received from the shared room to this browser's controls,
+        // so both partners' photo count / timer / filter / design / font stay identical.
+        window.applyRemoteSettings = function(settings) {
+            if (!settings || window.isCapturing) return;
+
+            let changed = false;
+
+            if (settings.photoCount && photoCountSelect.value !== settings.photoCount) {
+                photoCountSelect.value = settings.photoCount;
+                changed = true;
+            }
+            if (settings.countdown && countdownSelect.value !== settings.countdown) {
+                countdownSelect.value = settings.countdown;
+                timerHelperText.innerText = `Provides a ${settings.countdown}-second timer between each shot.`;
+                changed = true;
+            }
+            if (settings.filter && filterSelect.value !== settings.filter) {
+                filterSelect.value = settings.filter;
+                video.style.filter = settings.filter;
+                changed = true;
+            }
+            if (settings.design && stripDesignSelect.value !== settings.design) {
+                stripDesignSelect.value = settings.design;
+                changed = true;
+            }
+            if (settings.font && fontSelect.value !== settings.font) {
+                fontSelect.value = settings.font;
+                changed = true;
+            }
+
+            if (!changed) return;
+
+            // Keep the button label in sync with the shared photo count
+            const count = photoCountSelect.value;
+            const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
+            startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth (${photoText})`;
+
+            // Re-draw the strip if a design/font change arrives after photos are already taken
+            if (!window.isCapturing && capturedFrames.length > 0) renderStrip();
+        };
 
         // Strip Configuration settings
         // We set the canvas to match a standard 16:9 ratio, which matches the UI's aspect-video
@@ -949,24 +1026,29 @@
                 const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
                 startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth (${photoText})`;
             }
+            if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
 
         countdownSelect.addEventListener('change', () => {
             timerHelperText.innerText = `Provides a ${countdownSelect.value}-second timer between each shot.`;
+            if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
 
         // Re-render strip dynamically if design changes
         stripDesignSelect.addEventListener('change', () => {
             if (!isCapturing && capturedFrames.length > 0) renderStrip();
+            if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
         
         // Re-render strip dynamically if font changes
         fontSelect.addEventListener('change', () => {
             if (!isCapturing && capturedFrames.length > 0) renderStrip();
+            if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
 
         filterSelect.addEventListener('change', () => {
             video.style.filter = filterSelect.value;
+            if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
 
         initCamera();
