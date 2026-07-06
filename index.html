@@ -42,12 +42,14 @@
         let isPeerReady = false;
         let localStream = null;
         const activeConnections = {};
-        const videoElements = {}; 
         
-        // Global Promise to ensure we don't pick up calls before our camera is on
-        let cameraPromiseResolver;
-        const cameraPromise = new Promise((resolve) => {
-            cameraPromiseResolver = resolve;
+        // CRITICAL FIX: Expose videoElements globally so the Canvas script can read it
+        window.videoElements = {}; 
+        
+        // Use a promise to ensure we only answer calls after the camera is ready
+        let cameraReadyResolver;
+        window.cameraReadyPromise = new Promise((resolve) => {
+            cameraReadyResolver = resolve;
         });
 
         peer.on('open', (id) => {
@@ -57,13 +59,21 @@
 
         // Listen for incoming video calls from any new partners
         peer.on('call', async (call) => {
-            await cameraPromise; // Wait for camera permission before answering
+            console.log("Incoming call from:", call.peer);
+            
+            // Wait for local camera to be active
+            await window.cameraReadyPromise; 
+            
             activeConnections[call.peer] = call;
             call.answer(localStream); 
+            
             call.on('stream', (remoteStream) => {
+                console.log("Received remote stream from:", call.peer);
                 addRemoteVideo(call.peer, remoteStream);
             });
+            
             call.on('close', () => removeRemoteVideo(call.peer));
+            call.on('error', (err) => console.error("Call error:", err));
         });
 
         // Sign in anonymously so users can write to the database
@@ -96,7 +106,7 @@
         };
 
         function initUI() {
-            videoElements['local'] = document.getElementById('camera-feed');
+            window.videoElements['local'] = document.getElementById('camera-feed');
 
             const roomSetup = document.getElementById('room-setup');
             const roomActive = document.getElementById('room-active');
@@ -208,7 +218,7 @@
                 
                 Object.values(activeConnections).forEach(call => call.close());
                 
-                Object.keys(videoElements).forEach(peerId => {
+                Object.keys(window.videoElements).forEach(peerId => {
                     if (peerId !== 'local') {
                         removeRemoteVideo(peerId);
                     }
@@ -293,21 +303,32 @@
                     }
 
                     // 3. Setup new calls deterministically
+                    // This is the core "Mesh Networking" logic
                     data.participants.forEach(pId => {
+                        // If it's not us, and we aren't already connected to them
                         if (pId !== peer.id && !activeConnections[pId]) {
-                            // MESH NETWORKING FIX: Only ONE side initiates the call (Alphabetical check)
-                            // This stops two people from calling each other simultaneously and dropping streams
+                            
+                            // Deterministic Caller Check: 
+                            // Only the peer with the "higher" ID string initiates the call.
+                            // This guarantees exactly ONE call is placed between any two peers, preventing race conditions.
                             if (peer.id > pId) {
                                 console.log("Initiating outbound call to:", pId);
-                                cameraPromise.then(() => {
+                                
+                                // Wait for our camera to be ready before calling
+                                window.cameraReadyPromise.then(() => {
                                     const call = peer.call(pId, localStream);
                                     activeConnections[pId] = call;
+                                    
                                     call.on('stream', (remoteStream) => {
+                                        console.log("Received remote stream from outbound call:", pId);
                                         addRemoteVideo(pId, remoteStream);
                                     });
+                                    
                                     call.on('close', () => removeRemoteVideo(pId));
                                     call.on('error', (err) => console.error("Peer call error:", err));
                                 });
+                            } else {
+                                console.log("Waiting for incoming call from:", pId);
                             }
                         }
                     });
@@ -330,7 +351,7 @@
         }
         
         function addRemoteVideo(peerId, stream) {
-            if (videoElements[peerId]) return; 
+            if (window.videoElements[peerId]) return; 
             
             const grid = document.getElementById('video-grid');
             
@@ -356,7 +377,7 @@
             wrapper.appendChild(label);
             grid.appendChild(wrapper);
             
-            videoElements[peerId] = vid;
+            window.videoElements[peerId] = vid;
             updateGridCSS();
         }
 
@@ -364,13 +385,13 @@
         function removeRemoteVideo(peerId) {
             const wrapper = document.getElementById(`wrapper-${peerId}`);
             if (wrapper) wrapper.remove();
-            delete videoElements[peerId];
+            delete window.videoElements[peerId];
             delete activeConnections[peerId];
             updateGridCSS();
         }
 
         function updateGridCSS() {
-            const count = Object.keys(videoElements).length;
+            const count = Object.keys(window.videoElements).length;
             const grid = document.getElementById('video-grid');
             
             grid.style.gridTemplateColumns = '';
@@ -389,11 +410,11 @@
         
         window.setLocalStream = (stream) => {
             localStream = stream;
-            if(cameraPromiseResolver) cameraPromiseResolver(stream); // Mark camera as completely ready
+            // Resolve the promise so PeerJS knows it's safe to make/receive calls
+            if(cameraReadyResolver) {
+                cameraReadyResolver();
+            }
         }
-        
-        // Expose to window for the capturing script down below
-        window.getVideoElements = () => videoElements;
     </script>
 
     <style>
