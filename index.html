@@ -43,10 +43,24 @@
         let localStream = null;
         const activeConnections = {};
         
-        // CRITICAL FIX: Expose videoElements globally so the Canvas script can read it
         window.videoElements = {}; 
         
-        // Use a promise to ensure we only answer calls after the camera is ready
+        // --- LAYOUT HELPER ---
+        // Dynamically scales rows and columns based on the number of people
+        window.getGridLayout = function(count) {
+            let cols = 1, rows = 1;
+            if (count <= 1) { cols = 1; rows = 1; }
+            else if (count === 2) { cols = 2; rows = 1; }
+            else if (count === 3 || count === 4) { cols = 2; rows = 2; }
+            else if (count >= 5 && count <= 6) { cols = 3; rows = 2; }
+            else if (count >= 7 && count <= 9) { cols = 3; rows = 3; }
+            else {
+                cols = Math.ceil(Math.sqrt(count));
+                rows = Math.ceil(count / cols);
+            }
+            return { cols, rows };
+        };
+        
         let cameraReadyResolver;
         window.cameraReadyPromise = new Promise((resolve) => {
             cameraReadyResolver = resolve;
@@ -57,11 +71,9 @@
             console.log("PeerJS Initialized with ID:", id);
         });
 
-        // Listen for incoming video calls from any new partners
         peer.on('call', async (call) => {
             console.log("Incoming call from:", call.peer);
             
-            // Wait for local camera to be active
             await window.cameraReadyPromise; 
             
             activeConnections[call.peer] = call;
@@ -76,7 +88,6 @@
             call.on('error', (err) => console.error("Call error:", err));
         });
 
-        // Sign in anonymously so users can write to the database
         signInAnonymously(auth).then(() => {
             onAuthStateChanged(auth, (u) => { 
                 user = u; 
@@ -207,7 +218,6 @@
             if(leaveBtn) leaveBtn.addEventListener('click', () => {
                 if (unsubscribe) unsubscribe();
                 
-                // Clean up firestore so others know we left
                 if (currentRoom && peer.id) {
                     updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), {
                         participants: arrayRemove(peer.id)
@@ -235,7 +245,6 @@
             });
         }
 
-        // Handle abrupt tab closures cleanly
         window.addEventListener('beforeunload', () => {
             if (currentRoom && peer.id && user) {
                 updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), {
@@ -244,7 +253,6 @@
             }
         });
 
-        // Fire initialization safely
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', initUI);
         } else {
@@ -283,7 +291,6 @@
                 if (!data) return;
         
                 if (data.participants) {
-                    // 1. Detect and remove dropped partners
                     Object.keys(activeConnections).forEach(existingId => {
                         if (!data.participants.includes(existingId)) {
                             console.log("Partner left the room:", existingId);
@@ -292,7 +299,6 @@
                         }
                     });
 
-                    // 2. Update UI Counts
                     const count = data.participants.length;
                     if (count > 1) {
                         const roomStatus = document.getElementById('room-status');
@@ -302,19 +308,10 @@
                         if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
                     }
 
-                    // 3. Setup new calls deterministically
-                    // This is the core "Mesh Networking" logic
                     data.participants.forEach(pId => {
-                        // If it's not us, and we aren't already connected to them
                         if (pId !== peer.id && !activeConnections[pId]) {
-                            
-                            // Deterministic Caller Check: 
-                            // Only the peer with the "higher" ID string initiates the call.
-                            // This guarantees exactly ONE call is placed between any two peers, preventing race conditions.
                             if (peer.id > pId) {
                                 console.log("Initiating outbound call to:", pId);
-                                
-                                // Wait for our camera to be ready before calling
                                 window.cameraReadyPromise.then(() => {
                                     const call = peer.call(pId, localStream);
                                     activeConnections[pId] = call;
@@ -356,14 +353,15 @@
             const grid = document.getElementById('video-grid');
             
             const wrapper = document.createElement('div');
-            wrapper.className = 'relative w-full h-full bg-gray-800 flex items-center justify-center flex-shrink-0';
+            // FIX: Added min-h-0 min-w-0 so CSS Grid bounds strictly contain the video intrinsic sizes
+            wrapper.className = 'relative w-full h-full bg-gray-800 flex items-center justify-center flex-shrink-0 min-h-0 min-w-0';
             wrapper.id = `wrapper-${peerId}`;
 
             const vid = document.createElement('video');
             vid.className = 'w-full h-full object-cover transition-all duration-300';
             vid.autoplay = true;
             vid.playsInline = true;
-            vid.muted = true; // Fixes strict iOS autoplay policies
+            vid.muted = true; 
             vid.srcObject = stream;
             vid.style.transform = 'scaleX(-1)'; 
             
@@ -381,7 +379,6 @@
             updateGridCSS();
         }
 
-        // Shared Cleanup Helper
         function removeRemoteVideo(peerId) {
             const wrapper = document.getElementById(`wrapper-${peerId}`);
             if (wrapper) wrapper.remove();
@@ -394,23 +391,16 @@
             const count = Object.keys(window.videoElements).length;
             const grid = document.getElementById('video-grid');
             
-            grid.style.gridTemplateColumns = '';
-            grid.style.gridTemplateRows = '';
+            if (!window.getGridLayout) return;
+            const layout = window.getGridLayout(count);
             
-            if (count % 2 === 0) {
-                const cols = 2;
-                const rows = count / 2;
-                grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-                grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
-            } else {
-                grid.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
-                grid.style.gridTemplateRows = '1fr';
-            }
+            // FIX: minmax(0, 1fr) strictly prevents videos from forcing larger heights, eliminating the cropped bottom
+            grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
+            grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
         
         window.setLocalStream = (stream) => {
             localStream = stream;
-            // Resolve the promise so PeerJS knows it's safe to make/receive calls
             if(cameraReadyResolver) {
                 cameraReadyResolver();
             }
@@ -517,7 +507,8 @@
 
             <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner aspect-[4/3] md:aspect-video transition-all duration-300">
                 <div id="video-grid" class="w-full h-full grid divide-x divide-y divide-gray-700">
-                    <div class="relative w-full h-full bg-gray-900 flex-shrink-0">
+                    <!-- FIX: Added min-h-0 min-w-0 -->
+                    <div class="relative w-full h-full bg-gray-900 flex-shrink-0 min-h-0 min-w-0">
                         <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline muted></video>
                         <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10">YOU</div>
                     </div>
@@ -771,12 +762,10 @@
             );
         }
 
-        // --- SCOPING FIX ---
-        // Dynamically gathers the local video + whatever remote videos are tracked in the shared module
         function getActiveVideos() {
             let vids = [];
             
-            const registry = window.getVideoElements ? window.getVideoElements() : {};
+            const registry = window.videoElements || {};
 
             if (registry['local'] && registry['local'].srcObject) {
                 vids.push(registry['local']);
@@ -800,16 +789,10 @@
             const activeVids = getActiveVideos();
             const count = Math.max(1, activeVids.length); 
             
-            let cols = 1;
-            let rows = 1;
-
-            if (count % 2 === 0) {
-                cols = 2;
-                rows = count / 2;
-            } else {
-                cols = count;
-                rows = 1;
-            }
+            // FIX: Using the global layout generator to match the UI perfectly
+            const layout = window.getGridLayout ? window.getGridLayout(count) : { cols: 1, rows: 1 };
+            const cols = layout.cols;
+            const rows = layout.rows;
             
             const cellW = width / cols;
             const cellH = height / rows;
