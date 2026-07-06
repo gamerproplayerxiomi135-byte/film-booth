@@ -51,31 +51,32 @@
         // grid. Numbers with no useful factor pair (3, 5, 7, 11... i.e. mostly
         // odd/prime counts) get stacked vertically instead of leaving a gap —
         // which also echoes the booth's own vertical photo-strip look.
-// Tiles even counts into balanced rectangular grids (prioritizing landscape).
-// Stacks odd counts into a vertical strip to match the photo booth look.
-        window.getGridLayout = function(count) {
-            if (count <= 1) return { cols: 1, rows: 1 };
-        
-            // 1. ODD COUNT: Force vertical strip layout (1 column, N rows)
-            if (count % 2 !== 0) {
-                return { cols: 1, rows: count };
-            }
-        
-            // 2. EVEN COUNT: Find balanced factor pair
-            // We iterate to find factors, but force cols to be the smaller 
-            // number and rows to be the larger number to prioritize verticality.
-            for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
-                if (count % factor === 0) {
-                    const smallerFactor = factor;
-                    const largerFactor = count / factor;
-                    
-                    // By setting cols to the smaller factor and rows to the larger,
-                    // we force the grid to stack vertically on all devices.
-                    return { cols: smallerFactor, rows: largerFactor };
+        // Tiles even counts into balanced rectangular grids (prioritizing landscape).
+        // Stacks odd counts into a vertical strip to match the photo booth look.
+                    window.getGridLayout = function(count) {
+                if (count <= 1) return { cols: 1, rows: 1 };
+            
+                // 1. ODD COUNT: Force vertical strip layout (1 column, N rows)
+                if (count % 2 !== 0) {
+                    return { cols: 1, rows: count };
                 }
-            }
-        
-            return { cols: 1, rows: count };
+            
+                // 2. EVEN COUNT: Find balanced factor pair
+                // We iterate to find factors, but force rows to be the smaller 
+                // number and cols to be the larger number, then swap them to 
+                // prioritize portrait orientation (more rows than columns).
+                for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
+                    if (count % factor === 0) {
+                        const smallerFactor = factor;
+                        const largerFactor = count / factor;
+                        
+                        // To achieve a portrait layout (rows > cols), 
+                        // we assign the larger factor to rows and smaller to cols.
+                        return { cols: smallerFactor, rows: largerFactor };
+                    }
+                }
+            
+                return { cols: 1, rows: count };
         };
         
         let cameraReadyResolver;
