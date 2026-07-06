@@ -367,7 +367,11 @@
         function addRemoteVideo(peerId, stream) {
             if (window.videoElements[peerId]) return; 
             
-            const grid = document.getElementById('video-grid');
+           const grid = document.getElementById('video-grid');
+grid.style.display = 'grid';
+grid.style.gridAutoFlow = 'column'; // Add this line
+grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
+grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
             
             const wrapper = document.createElement('div');
             // FIX: Added min-h-0 min-w-0 so CSS Grid bounds strictly contain the video intrinsic sizes
