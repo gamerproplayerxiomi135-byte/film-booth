@@ -58,7 +58,7 @@
         
             // 1. ODD COUNT: Force vertical strip layout (1 column, N rows)
             if (count % 2 !== 0) {
-                return { cols: 1, rows: count };
+                return { cols: count, rows: 1 };
             }
         
             // 2. EVEN COUNT: Find balanced factor pair
