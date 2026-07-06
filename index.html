@@ -51,22 +51,20 @@
         // grid. Numbers with no useful factor pair (3, 5, 7, 11... i.e. mostly
         // odd/prime counts) get stacked vertically instead of leaving a gap —
         // which also echoes the booth's own vertical photo-strip look.
-        // Tiles even counts into balanced rectangular grids (prioritizing landscape).
-        // Stacks odd counts into a vertical strip to match the photo booth look.
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
-        
-            // ODD: Vertical strip (1 column, N rows)
-            if (count % 2 !== 0) return { cols: 1, rows: count };
-        
-            // EVEN: Calculate factors to ensure we have at least 2 rows (Portrait bias)
-            for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
-                if (count % factor === 0) {
-                    // Force portrait: smaller factor is cols, larger is rows
-                    return { cols: factor, rows: count / factor };
+
+            for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
+                if (count % rows === 0) {
+                    const cols = count / rows;
+                    if (rows === 1 && count > 2) {
+                        // Only trivial factor pair (1 x count) available — stack vertically
+                        return { cols: 1, rows: count };
+                    }
+                    return { cols, rows };
                 }
             }
-            return { cols: 1, rows: count };
+            return { cols: 1, rows: count }; // unreachable safety fallback
         };
         
         let cameraReadyResolver;
@@ -359,10 +357,6 @@
             if (window.videoElements[peerId]) return; 
             
             const grid = document.getElementById('video-grid');
-            grid.style.display = 'grid';
-            grid.style.gridAutoFlow = 'column'; // <--- ADD THIS
-            grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
-            grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
             
             const wrapper = document.createElement('div');
             // FIX: Added min-h-0 min-w-0 so CSS Grid bounds strictly contain the video intrinsic sizes
