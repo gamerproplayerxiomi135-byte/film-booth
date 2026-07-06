@@ -333,21 +333,26 @@
             updateGridCSS();
         }
 
-        // DOM Helper: Adjusts the grid dynamically up to 4 users (2x2)
+        // DOM Helper: Adjusts the UI grid dynamically
+        // Using inline styles to avoid Tailwind compilation drops for dynamic classes
         function updateGridCSS() {
             const count = Object.keys(videoElements).length;
             const grid = document.getElementById('video-grid');
             
-            // Remove existing grid classes
-            grid.classList.remove('grid-cols-1', 'grid-cols-2', 'grid-rows-1', 'grid-rows-2');
+            grid.style.gridTemplateColumns = '';
+            grid.style.gridTemplateRows = '';
             
             // Apply new dynamic grid structure
-            if (count > 2) {
-                grid.classList.add('grid-cols-2', 'grid-rows-2');
-            } else if (count === 2) {
-                grid.classList.add('grid-cols-2', 'grid-rows-1');
+            if (count % 2 === 0) {
+                // Even: Tile Collage
+                const cols = 2;
+                const rows = count / 2;
+                grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+                grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
             } else {
-                grid.classList.add('grid-cols-1', 'grid-rows-1');
+                // Odd: Vertical Collage (side-by-side vertical columns)
+                grid.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
+                grid.style.gridTemplateRows = '1fr';
             }
         }
         
@@ -465,7 +470,7 @@
 
             <!-- UPDATED Camera Viewfinder (Dynamic Grid) -->
             <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner aspect-[4/3] md:aspect-video transition-all duration-300">
-                <div id="video-grid" class="w-full h-full grid grid-cols-1 grid-rows-1 divide-x divide-y divide-gray-700">
+                <div id="video-grid" class="w-full h-full grid divide-x divide-y divide-gray-700">
                     <!-- Local Camera -->
                     <div class="relative w-full h-full bg-gray-900 flex-shrink-0">
                         <!-- Muted so you don't hear yourself -->
@@ -745,6 +750,7 @@
         }
 
         // Dynamic multi-grid Canvas Drawer
+        // ODD = Vertical Slices (columns), EVEN = Tile Collage
         function drawCombinedFeed(ctx, width, height, filterValue) {
             ctx.save();
             ctx.translate(width, 0);
@@ -753,11 +759,20 @@
             
             // Get all active video elements dynamically
             const activeVids = Object.values(videoElements).filter(vid => vid && vid.srcObject);
-            const count = activeVids.length;
+            const count = Math.max(1, activeVids.length); // Avoid division by zero
             
-            // Calculate grid rows and columns (max 2x2 supported natively)
-            const cols = count > 1 ? 2 : 1;
-            const rows = count > 2 ? 2 : 1;
+            let cols = 1;
+            let rows = 1;
+
+            if (count % 2 === 0) {
+                // Even: Tile Collage
+                cols = 2;
+                rows = count / 2;
+            } else {
+                // Odd: Vertical Collage (side by side vertical slices)
+                cols = count;
+                rows = 1;
+            }
             
             const cellW = width / cols;
             const cellH = height / rows;
@@ -994,162 +1009,195 @@
             livePreviewContainer.classList.add('hidden');
             livePreview.src = '';
 
-            // --- UPDATED: Polaroid Style Video Setup ---
-            const polaroidPadding = 40; // Side and top borders
-            const polaroidBottom = 160; // Bottom border for text
+            let mediaRecorder = null;
+            let isVideoRecording = false;
 
-            const recordCanvas = document.createElement('canvas');
-            recordCanvas.width = config.videoWidth + (polaroidPadding * 2);
-            recordCanvas.height = config.videoHeight + polaroidPadding + polaroidBottom;
-            const recCtx = recordCanvas.getContext('2d');
-            
-            // Generate the dynamic background ONCE for the video to prevent flickering
-            const bgCanvas = document.createElement('canvas');
-            bgCanvas.width = recordCanvas.width;
-            bgCanvas.height = recordCanvas.height;
-            const bgCtx = bgCanvas.getContext('2d');
-            
-            const design = stripDesignSelect.value;
-            let videoTextColor = '#000000';
-            
-            // Base Background
-            if (design === 'dark') {
-                bgCtx.fillStyle = '#121212';
-                videoTextColor = '#ffffff';
-            } else if (design === 'coffee') {
-                bgCtx.fillStyle = '#F4ECD8';
-            } else {
-                bgCtx.fillStyle = '#ffffff';
-            }
-            bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
-            
-            // Pattern overlays
-            if (design === 'grid') {
-                bgCtx.strokeStyle = '#bae6fd';
-                bgCtx.lineWidth = 2;
-                for(let x=0; x<bgCanvas.width; x+=40) { bgCtx.beginPath(); bgCtx.moveTo(x,0); bgCtx.lineTo(x,bgCanvas.height); bgCtx.stroke(); }
-                for(let y=0; y<bgCanvas.height; y+=40) { bgCtx.beginPath(); bgCtx.moveTo(0,y); bgCtx.lineTo(bgCanvas.width,y); bgCtx.stroke(); }
-            } else if (design === 'coffee') {
-                for(let i=0; i<400; i++) {
-                    bgCtx.beginPath(); 
-                    bgCtx.arc(Math.random()*bgCanvas.width, Math.random()*bgCanvas.height, Math.random()*2, 0, Math.PI*2);
-                    bgCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
-                    bgCtx.fill();
-                }
-            } else if (design === 'flowers') {
-                let grad = bgCtx.createLinearGradient(0, 0, 0, bgCanvas.height);
-                grad.addColorStop(0, '#e8f5e9');
-                grad.addColorStop(1, '#fffde7');
-                bgCtx.fillStyle = grad;
-                bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
-                const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
-                bgCtx.textAlign = 'center';
-                bgCtx.textBaseline = 'middle';
-                for(let i = 0; i < 60; i++) {
-                    let x = Math.random() * bgCanvas.width;
-                    let y = Math.random() * bgCanvas.height;
-                    let emoji = emojis[Math.floor(Math.random() * emojis.length)];
-                    let size = Math.random() * 50 + 30;
-                    bgCtx.font = `${size}px Arial`;
-                    bgCtx.globalAlpha = 0.6;
-                    bgCtx.save();
-                    bgCtx.translate(x, y);
-                    bgCtx.rotate(Math.random() * Math.PI * 2); 
-                    bgCtx.fillText(emoji, 0, 0);
-                    bgCtx.restore();
-                }
-                bgCtx.globalAlpha = 1.0;
-            }
-            
-            const stream = recordCanvas.captureStream(30);
-            
-            // Try to force MP4 format if the browser supports it natively
-            let options = {};
-            if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')) {
-                options = { mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' };
-            } else if (MediaRecorder.isTypeSupported('video/mp4')) {
-                options = { mimeType: 'video/mp4' };
-            } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
-                options = { mimeType: 'video/webm; codecs=vp9' };
-            } else if (MediaRecorder.isTypeSupported('video/webm')) {
-                options = { mimeType: 'video/webm' };
-            }
-            
-            const mediaRecorder = new MediaRecorder(stream, options);
-            const recordedChunks = [];
-            
-            mediaRecorder.ondataavailable = (e) => {
-                if (e.data.size > 0) recordedChunks.push(e.data);
-            };
-            
-            let isRecording = true;
-            
-            function drawRecordFrame() {
-                if (!isRecording) return;
-                
-                // 1. Draw the pre-generated background
-                recCtx.drawImage(bgCanvas, 0, 0);
-                
-                // 2. Translate to the inner video frame and draw the camera feed
-                recCtx.save();
-                recCtx.translate(polaroidPadding, polaroidPadding);
-                // Draw slight shadow for depth behind video
-                recCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-                recCtx.shadowBlur = 10;
-                recCtx.shadowOffsetY = 4;
-                drawCombinedFeed(recCtx, config.videoWidth, config.videoHeight, filterSelect.value);
-                recCtx.restore();
+            // --- UPDATED: Safe Polaroid Style Video Setup (Wrapped in Try/Catch) ---
+            try {
+                const polaroidPadding = 40; // Side and top borders
+                const polaroidBottom = 160; // Bottom border for text
 
-                // 3. Add the Title and Date
-                const fontChoice = fontSelect.value;
-                const textYPos = recordCanvas.height - (polaroidBottom / 2) - 10;
+                const recordCanvas = document.createElement('canvas');
+                recordCanvas.width = config.videoWidth + (polaroidPadding * 2);
+                recordCanvas.height = config.videoHeight + polaroidPadding + polaroidBottom;
+                const recCtx = recordCanvas.getContext('2d');
                 
-                recCtx.fillStyle = videoTextColor; // Use color matching the design
-                recCtx.textAlign = 'center';
-                recCtx.textBaseline = 'middle';
-
-                // Title Font
-                let titleText = "PhotoBoth";
-                if (fontChoice === 'cursive') {
-                    recCtx.font = 'bold 64px "Dancing Script", cursive';
-                } else if (fontChoice === 'romantic') {
-                    recCtx.font = '76px "Great Vibes", cursive';
-                } else if (fontChoice === 'typewriter') {
-                    recCtx.font = '48px "Special Elite", monospace';
-                    titleText = "PHOTOBOTH";
-                } else if (fontChoice === 'sans-serif') {
-                    recCtx.font = 'bold 48px "Inter", sans-serif';
-                    titleText = "PHOTOBOTH";
-                } else { // Monospace default
-                    recCtx.font = 'bold 48px "Courier Prime", monospace';
-                    titleText = "PHOTOBOTH";
-                }
+                // Generate the dynamic background ONCE for the video to prevent flickering
+                const bgCanvas = document.createElement('canvas');
+                bgCanvas.width = recordCanvas.width;
+                bgCanvas.height = recordCanvas.height;
+                const bgCtx = bgCanvas.getContext('2d');
                 
-                recCtx.fillText(titleText, recordCanvas.width / 2, textYPos - 15);
-
-                // Date Font
-                const today = new Date();
-                const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                const design = stripDesignSelect.value;
+                let videoTextColor = '#000000';
                 
-                if (fontChoice === 'sans-serif') {
-                    recCtx.font = '20px "Inter", sans-serif';
-                } else if (fontChoice === 'typewriter') {
-                    recCtx.font = '22px "Special Elite", monospace';
-                } else if (fontChoice === 'romantic') {
-                    recCtx.font = '32px "Great Vibes", cursive';
-                } else if (fontChoice === 'cursive') {
-                    recCtx.font = '24px "Dancing Script", cursive';
+                // Base Background
+                if (design === 'dark') {
+                    bgCtx.fillStyle = '#121212';
+                    videoTextColor = '#ffffff';
+                } else if (design === 'coffee') {
+                    bgCtx.fillStyle = '#F4ECD8';
                 } else {
-                    recCtx.font = '22px "Courier Prime", monospace';
+                    bgCtx.fillStyle = '#ffffff';
+                }
+                bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+                
+                // Pattern overlays
+                if (design === 'grid') {
+                    bgCtx.strokeStyle = '#bae6fd';
+                    bgCtx.lineWidth = 2;
+                    for(let x=0; x<bgCanvas.width; x+=40) { bgCtx.beginPath(); bgCtx.moveTo(x,0); bgCtx.lineTo(x,bgCanvas.height); bgCtx.stroke(); }
+                    for(let y=0; y<bgCanvas.height; y+=40) { bgCtx.beginPath(); bgCtx.moveTo(0,y); bgCtx.lineTo(bgCanvas.width,y); bgCtx.stroke(); }
+                } else if (design === 'coffee') {
+                    for(let i=0; i<400; i++) {
+                        bgCtx.beginPath(); 
+                        bgCtx.arc(Math.random()*bgCanvas.width, Math.random()*bgCanvas.height, Math.random()*2, 0, Math.PI*2);
+                        bgCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
+                        bgCtx.fill();
+                    }
+                } else if (design === 'flowers') {
+                    let grad = bgCtx.createLinearGradient(0, 0, 0, bgCanvas.height);
+                    grad.addColorStop(0, '#e8f5e9');
+                    grad.addColorStop(1, '#fffde7');
+                    bgCtx.fillStyle = grad;
+                    bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+                    const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
+                    bgCtx.textAlign = 'center';
+                    bgCtx.textBaseline = 'middle';
+                    for(let i = 0; i < 60; i++) {
+                        let x = Math.random() * bgCanvas.width;
+                        let y = Math.random() * bgCanvas.height;
+                        let emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                        let size = Math.random() * 50 + 30;
+                        bgCtx.font = `${size}px Arial`;
+                        bgCtx.globalAlpha = 0.6;
+                        bgCtx.save();
+                        bgCtx.translate(x, y);
+                        bgCtx.rotate(Math.random() * Math.PI * 2); 
+                        bgCtx.fillText(emoji, 0, 0);
+                        bgCtx.restore();
+                    }
+                    bgCtx.globalAlpha = 1.0;
                 }
                 
-                recCtx.fillText(dateStr, recordCanvas.width / 2, textYPos + 35);
+                // Ensure browser supports capturing streams from canvas elements
+                if (!recordCanvas.captureStream) {
+                    throw new Error("Canvas captureStream is not supported in this browser.");
+                }
+                const stream = recordCanvas.captureStream(30);
                 
-                requestAnimationFrame(drawRecordFrame);
+                // Try to force MP4 format if the browser supports it natively
+                let options = {};
+                if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')) {
+                    options = { mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' };
+                } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+                    options = { mimeType: 'video/mp4' };
+                } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
+                    options = { mimeType: 'video/webm; codecs=vp9' };
+                } else if (MediaRecorder.isTypeSupported('video/webm')) {
+                    options = { mimeType: 'video/webm' };
+                }
+                
+                mediaRecorder = new MediaRecorder(stream, options);
+                const recordedChunks = [];
+                
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+                
+                mediaRecorder.onstop = () => {
+                    let actualMimeType = mediaRecorder.mimeType || (options.mimeType || 'video/webm');
+                    let ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
+                    
+                    const blob = new Blob(recordedChunks, { type: actualMimeType });
+                    const videoUrl = URL.createObjectURL(blob);
+                    
+                    btsPreview.src = videoUrl;
+                    btsPreview.classList.remove('hidden');
+
+                    downloadVideoBtn.onclick = () => {
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = videoUrl;
+                        a.download = `photobooth-bts-${Date.now()}.${ext}`;
+                        document.body.appendChild(a);
+                        a.click();
+                    };
+                    downloadVideoBtn.classList.remove('hidden');
+                };
+                
+                isVideoRecording = true;
+                
+                function drawRecordFrame() {
+                    if (!isVideoRecording) return;
+                    
+                    // 1. Draw the pre-generated background
+                    recCtx.drawImage(bgCanvas, 0, 0);
+                    
+                    // 2. Translate to the inner video frame and draw the camera feed
+                    recCtx.save();
+                    recCtx.translate(polaroidPadding, polaroidPadding);
+                    // Draw slight shadow for depth behind video
+                    recCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                    recCtx.shadowBlur = 10;
+                    recCtx.shadowOffsetY = 4;
+                    drawCombinedFeed(recCtx, config.videoWidth, config.videoHeight, filterSelect.value);
+                    recCtx.restore();
+
+                    // 3. Add the Title and Date
+                    const fontChoice = fontSelect.value;
+                    const textYPos = recordCanvas.height - (polaroidBottom / 2) - 10;
+                    
+                    recCtx.fillStyle = videoTextColor; // Use color matching the design
+                    recCtx.textAlign = 'center';
+                    recCtx.textBaseline = 'middle';
+
+                    // Title Font
+                    let titleText = "PhotoBoth";
+                    if (fontChoice === 'cursive') {
+                        recCtx.font = 'bold 64px "Dancing Script", cursive';
+                    } else if (fontChoice === 'romantic') {
+                        recCtx.font = '76px "Great Vibes", cursive';
+                    } else if (fontChoice === 'typewriter') {
+                        recCtx.font = '48px "Special Elite", monospace';
+                        titleText = "PHOTOBOTH";
+                    } else if (fontChoice === 'sans-serif') {
+                        recCtx.font = 'bold 48px "Inter", sans-serif';
+                        titleText = "PHOTOBOTH";
+                    } else { // Monospace default
+                        recCtx.font = 'bold 48px "Courier Prime", monospace';
+                        titleText = "PHOTOBOTH";
+                    }
+                    
+                    recCtx.fillText(titleText, recordCanvas.width / 2, textYPos - 15);
+
+                    // Date Font
+                    const today = new Date();
+                    const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                    
+                    if (fontChoice === 'sans-serif') {
+                        recCtx.font = '20px "Inter", sans-serif';
+                    } else if (fontChoice === 'typewriter') {
+                        recCtx.font = '22px "Special Elite", monospace';
+                    } else if (fontChoice === 'romantic') {
+                        recCtx.font = '32px "Great Vibes", cursive';
+                    } else if (fontChoice === 'cursive') {
+                        recCtx.font = '24px "Dancing Script", cursive';
+                    } else {
+                        recCtx.font = '22px "Courier Prime", monospace';
+                    }
+                    
+                    recCtx.fillText(dateStr, recordCanvas.width / 2, textYPos + 35);
+                    
+                    requestAnimationFrame(drawRecordFrame);
+                }
+                
+                drawRecordFrame();
+                mediaRecorder.start();
+            } catch (err) {
+                console.warn("Behind The Scenes video recording failed or is not supported. Skipping.", err);
+                isVideoRecording = false; // Ensures script safely moves onto the photos
             }
-            
-            drawRecordFrame();
-            mediaRecorder.start();
             // --- END UPDATED BLOCK ---
 
             for (let i = 0; i < config.totalPhotos; i++) {
@@ -1159,29 +1207,10 @@
                 await delay(500); 
             }
 
-            isRecording = false;
-            mediaRecorder.stop();
-            
-            mediaRecorder.onstop = () => {
-                let actualMimeType = mediaRecorder.mimeType || (options.mimeType || 'video/webm');
-                let ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
-                
-                const blob = new Blob(recordedChunks, { type: actualMimeType });
-                const videoUrl = URL.createObjectURL(blob);
-                
-                btsPreview.src = videoUrl;
-                btsPreview.classList.remove('hidden');
-
-                downloadVideoBtn.onclick = () => {
-                    const a = document.createElement('a');
-                    a.style.display = 'none';
-                    a.href = videoUrl;
-                    a.download = `photobooth-bts-${Date.now()}.${ext}`;
-                    document.body.appendChild(a);
-                    a.click();
-                };
-                downloadVideoBtn.classList.remove('hidden');
-            };
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                isVideoRecording = false;
+                mediaRecorder.stop();
+            }
 
             renderStrip();
             window.isCapturing = false;
