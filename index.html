@@ -65,10 +65,10 @@
             // We want the grid to be as square/rectangular as possible (landscape).
             for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
                 if (count % factor === 0) {
-                    const cols = count / factor;
-                    const rows = factor;
-                    // cols > rows results in the tiled rectangular look
-                    return { cols: cols, rows: rows };
+            const cols = factor;
+            const rows = count / factor;
+            // rows > cols results in the vertical stacking look
+            return { cols: cols, rows: rows };
                 }
             }
         
