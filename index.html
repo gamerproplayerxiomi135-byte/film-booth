@@ -37,15 +37,15 @@
         let currentRoom = null;
         
         // --- WebRTC (PeerJS) Variables ---
-        const peer = new Peer(); // Generates a unique PeerID automatically
+        const peer = new Peer(); 
         let localStream = null;
         const activeConnections = {};
-        const videoElements = {}; // Map holding peerId -> HTMLVideoElement
+        const videoElements = {}; 
 
         // Listen for incoming video calls from any new partners
         peer.on('call', (call) => {
             activeConnections[call.peer] = call;
-            call.answer(localStream); // Answer the call with our local video stream
+            call.answer(localStream); 
             call.on('stream', (remoteStream) => {
                 addRemoteVideo(call.peer, remoteStream);
             });
@@ -59,7 +59,6 @@
             });
         }).catch((error) => console.error("Auth Error:", error));
 
-        // Reads the current control panel values directly from the DOM.
         function getCurrentSettingsFromDOM() {
             return {
                 photoCount: document.getElementById('photo-count-select')?.value,
@@ -70,7 +69,6 @@
             };
         }
 
-        // Pushes the current settings to the shared room so both partners stay in sync.
         window.syncSettingsToRoom = async function() {
             if (!currentRoom) return;
             try {
@@ -82,25 +80,20 @@
             }
         };
 
-        // UI Elements assigned dynamically after page load
         window.addEventListener('DOMContentLoaded', () => {
-            // Register local camera in the dictionary
             videoElements['local'] = document.getElementById('camera-feed');
 
-            // UI Elements
             const roomSetup = document.getElementById('room-setup');
             const roomActive = document.getElementById('room-active');
             const displayCode = document.getElementById('display-room-code');
             const roomStatus = document.getElementById('room-status');
             const statusDot = document.getElementById('status-dot');
             
-            // Buttons
             const generateBtn = document.getElementById('generate-btn');
             const joinBtn = document.getElementById('join-btn');
             const copyBtn = document.getElementById('copy-code-btn');
             const leaveBtn = document.getElementById('leave-room-btn');
         
-            // Generate Room
             generateBtn.addEventListener('click', async () => {
                 generateBtn.innerText = "Generating...";
                 generateBtn.disabled = true;
@@ -108,19 +101,17 @@
                 const code = Math.random().toString(36).substring(2, 7).toUpperCase();
                 currentRoom = code;
             
-                // Create a timeout promise that rejects after 5 seconds
                 const timeout = new Promise((_, reject) => 
                     setTimeout(() => reject(new Error("Database request timed out. Check your connection or VPN.")), 5000)
                 );
             
                 try {
-                    // Race the database call against the timeout
                     await Promise.race([
                         setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
                             status: 'waiting', 
                             trigger: 'idle', 
-                            participants: [peer.id], // ARRAY SUPPORTING MULTIPLE USERS
-                            settings: getCurrentSettingsFromDOM(), // SEED THE ROOM WITH OUR CURRENT CONTROLS
+                            participants: [peer.id], 
+                            settings: getCurrentSettingsFromDOM(), 
                             timestamp: serverTimestamp() 
                         }),
                         timeout
@@ -141,7 +132,6 @@
                 }
             });
         
-            // Join Room
             joinBtn.addEventListener('click', async () => {
                 if (!user) return alert("Still connecting to database...");
                 const input = document.getElementById('join-code-input').value.trim().toUpperCase();
@@ -155,12 +145,10 @@
                         currentRoom = input;
                         const data = roomDoc.data();
 
-                        // Adopt the host's current camera settings immediately on joining
                         if (data.settings && typeof window.applyRemoteSettings === 'function') {
                             window.applyRemoteSettings(data.settings);
                         }
                         
-                        // Add ourselves to the existing participant list
                         await updateDoc(roomRef, { 
                             status: 'ready',
                             participants: arrayUnion(peer.id)
@@ -172,8 +160,6 @@
                         displayCode.innerText = input;
                         
                         listenToRoom(input);
-                        
-                        // Connection to peers is now handled dynamically by listenToRoom!
                     } else {
                         alert("Room not found. Check the code and try again.");
                     }
@@ -183,7 +169,6 @@
                 }
             });
         
-            // Copy Code
             copyBtn.addEventListener('click', () => {
                 navigator.clipboard.writeText(currentRoom).then(() => {
                     copyBtn.innerText = "✅";
@@ -191,15 +176,12 @@
                 });
             });
         
-            // Leave Room
             leaveBtn.addEventListener('click', () => {
                 if (unsubscribe) unsubscribe();
                 currentRoom = null;
                 
-                // End all active video calls
                 Object.values(activeConnections).forEach(call => call.close());
                 
-                // Remove all remote videos from the UI
                 Object.keys(videoElements).forEach(peerId => {
                     if (peerId !== 'local') {
                         const wrapper = document.getElementById(`wrapper-${peerId}`);
@@ -221,9 +203,7 @@
             });
         });
 
-        // Function called when the user clicks the "Sync & Start Booth" button
         window.triggerPartner = async () => {
-            // If they are not in a room, just start locally for a solo session
             if (!currentRoom) {
                 if(typeof window.startSequence === 'function') window.startSequence();
                 return;
@@ -233,13 +213,11 @@
             console.log("Triggering partner sequence for room:", currentRoom);
             
             try {
-                 // Tell the partner's browser to start
                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { 
                     trigger: 'start',
                     timestamp: serverTimestamp() 
                 });
                 
-                // Start the sequence locally as well
                 if(typeof window.startSequence === 'function') {
                      window.startSequence();
                 }
@@ -249,19 +227,16 @@
             }
         };
         
-        // Listener Function
         function listenToRoom(code) {
-            if (unsubscribe) unsubscribe(); // Stop previous listener
+            if (unsubscribe) unsubscribe(); 
             
             unsubscribe = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), (docSnapshot) => {
                 const data = docSnapshot.data();
                 if (!data) return;
         
-                // Sync Multipoint Connections dynamically
                 if (data.participants) {
                     const count = data.participants.length;
                     
-                    // Update UI status
                     if (count > 1) {
                         const roomStatus = document.getElementById('room-status');
                         const statusDot = document.getElementById('status-dot');
@@ -270,7 +245,6 @@
                         if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
                     }
 
-                    // Look for newly joined peers and call them
                     data.participants.forEach(pId => {
                         if (pId !== peer.id && !activeConnections[pId]) {
                             console.log("Connecting to new partner:", pId);
@@ -283,15 +257,12 @@
                     });
                 }
 
-                // Keep camera settings (photo count, timer, filter, design, font) in sync
                 if (data.settings && typeof window.applyRemoteSettings === 'function') {
                     window.applyRemoteSettings(data.settings);
                 }
         
-                // If the other person clicks start
                 if (data.trigger === 'start') {
                     if (typeof window.isCapturing !== 'undefined' && window.isCapturing === false) {
-                        // Reset trigger to idle so it doesn't loop
                         updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { trigger: 'idle' }).catch(e=>{});
                         
                         if(typeof window.startSequence === 'function') {
@@ -302,9 +273,8 @@
             });
         }
         
-        // DOM Helper: Injects new remote videos into the grid
         function addRemoteVideo(peerId, stream) {
-            if (videoElements[peerId]) return; // Prevent duplicates
+            if (videoElements[peerId]) return; 
             
             const grid = document.getElementById('video-grid');
             
@@ -316,8 +286,11 @@
             vid.className = 'w-full h-full object-cover transition-all duration-300';
             vid.autoplay = true;
             vid.playsInline = true;
+            vid.muted = true; // Fixes strict iOS autoplay policies
             vid.srcObject = stream;
-            vid.style.transform = 'scaleX(-1)'; // Mirror for consistency
+            vid.style.transform = 'scaleX(-1)'; 
+            
+            vid.play().catch(e => console.warn("Remote play failed", e));
 
             const label = document.createElement('div');
             label.className = 'absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10';
@@ -331,7 +304,6 @@
             updateGridCSS();
         }
 
-        // DOM Helper: Adjusts the UI grid dynamically
         function updateGridCSS() {
             const count = Object.keys(videoElements).length;
             const grid = document.getElementById('video-grid');
@@ -339,21 +311,17 @@
             grid.style.gridTemplateColumns = '';
             grid.style.gridTemplateRows = '';
             
-            // Apply new dynamic grid structure
             if (count % 2 === 0) {
-                // Even: Tile Collage
                 const cols = 2;
                 const rows = count / 2;
                 grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
                 grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
             } else {
-                // Odd: Vertical Collage (side-by-side vertical columns)
                 grid.style.gridTemplateColumns = `repeat(${count}, 1fr)`;
                 grid.style.gridTemplateRows = '1fr';
             }
         }
         
-        // Setup Camera Stream globally for PeerJS to use
         window.setLocalStream = (stream) => {
             localStream = stream;
         }
@@ -366,7 +334,6 @@
             color: #f3f4f6;
         }
         
-        /* New Cursive Title Class */
         .cursive-title {
             font-family: 'Dancing Script', cursive;
         }
@@ -375,12 +342,10 @@
             font-family: 'Courier Prime', monospace;
         }
         
-        /* Camera mirror effect */
         #camera-feed, #remote-feed {
             transform: scaleX(-1);
         }
 
-        /* Flash animation */
         @keyframes flash {
             0% { opacity: 0; }
             10% { opacity: 1; }
@@ -390,7 +355,6 @@
             animation: flash 0.5s ease-out;
         }
 
-        /* Custom scrollbar for the strip area */
         ::-webkit-scrollbar {
             width: 8px;
         }
@@ -410,7 +374,6 @@
 
     <!-- HEADER -->
     <header class="text-center mb-10 w-full max-w-2xl mx-auto px-4">
-        <!-- Changed to Title Case and added cursive-title class -->
         <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-4 text-white drop-shadow-md cursive-title">PhotoBoth</h1>
         <div class="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 shadow-lg">
             <p class="text-gray-200 text-base md:text-lg font-medium mb-1">
@@ -424,14 +387,12 @@
 
     <main class="w-full max-w-6xl flex flex-col md:flex-row gap-8 items-start justify-center">
         
-        <!-- Left Column: Camera and Controls -->
+        <!-- Left Column -->
         <div class="w-full md:w-1/2 lg:w-[500px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
             
-            <!-- Room Sync Panel -->
             <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-inner">
                 <h3 class="text-xs font-bold text-indigo-400 uppercase tracking-widest block mb-3 border-b border-gray-700 pb-2">Virtual Booth Sync</h3>
                 
-                <!-- Setup Mode: Generate or Join -->
                 <div id="room-setup" class="flex flex-col gap-4">
                     <button id="generate-btn" class="w-full py-2.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold rounded transition-colors shadow-sm flex justify-center items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -450,7 +411,6 @@
                     </div>
                 </div>
 
-                <!-- Active Mode: Connected or Waiting -->
                 <div id="room-active" class="hidden flex-col gap-3 items-center text-center mt-4">
                     <p class="text-xs text-gray-400 uppercase tracking-wider">Room Code</p>
                     <div class="flex justify-center items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700 w-full max-w-[250px] mx-auto">
@@ -463,35 +423,27 @@
                     </div>
                     <button id="leave-room-btn" class="text-xs text-gray-500 hover:text-red-400 mt-2 underline transition-colors">Leave Room</button>
                 </div>
-            </div> <!-- End of Sync Panel -->
+            </div> 
 
-            <!-- Camera Viewfinder (Dynamic Grid) -->
             <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner aspect-[4/3] md:aspect-video transition-all duration-300">
                 <div id="video-grid" class="w-full h-full grid divide-x divide-y divide-gray-700">
-                    <!-- Local Camera -->
                     <div class="relative w-full h-full bg-gray-900 flex-shrink-0">
-                        <!-- Muted so you don't hear yourself -->
                         <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline muted></video>
                         <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10">YOU</div>
                     </div>
-                    <!-- Partner cameras will be dynamically injected here -->
                 </div>
                 
-                <!-- Countdown Overlay (Covers both feeds) -->
                 <div id="countdown-overlay" class="absolute inset-0 flex items-center justify-center text-7xl font-bold text-white drop-shadow-md hidden z-10 bg-black/30">
                         3
                 </div>
 
-                <!-- Flash Overlay (Covers both feeds) -->
                 <div id="flash-overlay" class="absolute inset-0 bg-white opacity-0 pointer-events-none z-20"></div>
                 
-                <!-- Camera Error Message -->
                 <div id="camera-error" class="absolute inset-0 flex items-center justify-center p-6 text-center text-red-400 bg-gray-900 hidden z-30">
                     Unable to access camera. Please check your permissions and refresh.
                 </div>
             </div>
 
-            <!-- Controls -->
             <div class="flex flex-col gap-4">
                 
                 <div class="grid grid-cols-2 gap-4">
@@ -575,7 +527,7 @@
             </div>
         </div>
 
-        <!-- Right Column: Film Strip Result -->
+        <!-- Right Column -->
         <div class="w-full md:w-1/2 lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
             <div class="w-full flex justify-between items-center mb-4 flex-wrap gap-2">
                 <h2 class="text-xl font-semibold text-white">Your Strip & BTS</h2>
@@ -591,16 +543,12 @@
                 </div>
             </div>
 
-            <!-- Scrollable container for the strip -->
             <div class="flex-1 w-full bg-gray-950 rounded-lg border border-gray-800 p-4 overflow-y-auto flex flex-col items-center gap-6 max-h-[80vh]">
                 
-                <!-- This canvas holds the final stitched image -->
                 <canvas id="strip-canvas" class="hidden max-w-full h-auto shadow-2xl bg-white flex-shrink-0"></canvas>
                 
-                <!-- This video holds the BTS preview -->
                 <video id="bts-preview" controls class="hidden max-w-full h-auto rounded-lg shadow-2xl border border-gray-700 bg-black flex-shrink-0"></video>
                 
-                <!-- Placeholder when empty -->
                 <div id="strip-placeholder" class="h-full flex flex-col items-center justify-center text-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mb-4 opacity-50"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                     <p>Your photos will appear here</p>
@@ -611,7 +559,6 @@
     </main>
 
     <script>
-        // DOM Elements
         const video = document.getElementById('camera-feed');
         const filterSelect = document.getElementById('filter-select');
         const photoCountSelect = document.getElementById('photo-count-select');
@@ -631,11 +578,8 @@
         const livePreviewContainer = document.getElementById('live-preview-container');
         const livePreview = document.getElementById('live-preview');
         
-        // Expose startSequence to the window object so the Firebase script can call it
         window.isCapturing = false;
 
-        // Applies settings received from the shared room to this browser's controls,
-        // so both partners' photo count / timer / filter / design / font stay identical.
         window.applyRemoteSettings = function(settings) {
             if (!settings || window.isCapturing) return;
 
@@ -666,17 +610,13 @@
 
             if (!changed) return;
 
-            // Keep the button label in sync with the shared photo count
             const count = photoCountSelect.value;
             const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
             startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth (${photoText})`;
 
-            // Re-draw the strip if a design/font change arrives after photos are already taken
             if (!window.isCapturing && capturedFrames.length > 0) renderStrip();
         };
 
-        // Strip Configuration settings
-        // We set the canvas to match a standard 16:9 ratio, which matches the UI's aspect-video
         const config = {
             videoWidth: 1280,  
             videoHeight: 720, 
@@ -686,30 +626,20 @@
         };
         
         const stripCtx = stripCanvas.getContext('2d');
-
         let capturedFrames = [];
 
         async function initCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: true, 
-                    audio: false 
-                });
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
                 video.srcObject = stream;
+                video.muted = true;
+                video.playsInline = true;
                 
-                // Expose stream for PeerJS
+                await video.play().catch(e => console.warn("Local play failed", e));
+                
                 if(window.setLocalStream) {
                     window.setLocalStream(stream);
                 }
-
-                // Wait for the video to load to get dimensions, but we will force the render
-                // aspect ratio to match the 16:9 box you see on screen to prevent mismatched cropping.
-                video.addEventListener('loadedmetadata', () => {
-                    // Intentionally using fixed 16:9 capture resolution so crop matches UI
-                    // config.videoWidth = video.videoWidth;
-                    // config.videoHeight = video.videoHeight;
-                });
-
             } catch (err) {
                 console.error("Camera access denied or unavailable:", err);
                 cameraError.classList.remove('hidden');
@@ -720,10 +650,14 @@
 
         const delay = ms => new Promise(res => setTimeout(res, ms));
 
-        // --- Helper Function for Center Cropping ---
-        // This calculates how to draw a video so it fills the target area exactly like 'object-cover' in CSS
         function drawCenterCrop(ctx, sourceVid, targetX, targetY, targetW, targetH) {
-            if (!sourceVid.videoWidth || !sourceVid.videoHeight) return;
+            // Guard against unloaded video metadata crashing the canvas
+            if (!sourceVid || sourceVid.readyState < 2 || !sourceVid.videoWidth || !sourceVid.videoHeight) {
+                ctx.fillStyle = '#1f2937';
+                ctx.fillRect(targetX, targetY, targetW, targetH);
+                return;
+            }
+            
             const sourceAspect = sourceVid.videoWidth / sourceVid.videoHeight;
             const targetAspect = targetW / targetH;
             
@@ -741,30 +675,30 @@
                 sy = (sourceVid.videoHeight - sh) / 2;
             }
             
-            ctx.drawImage(sourceVid, sx, sy, sw, sh, targetX, targetY, targetW, targetH);
+            // Math.floor fixes fractional sub-pixel rendering bugs in WebKit/iOS
+            ctx.drawImage(
+                sourceVid, 
+                Math.floor(sx), Math.floor(sy), Math.floor(sw), Math.floor(sh), 
+                Math.floor(targetX), Math.floor(targetY), Math.floor(targetW), Math.floor(targetH)
+            );
         }
 
-        // Dynamic multi-grid Canvas Drawer
-        // ODD = Vertical Slices (columns), EVEN = Tile Collage
         function drawCombinedFeed(ctx, width, height, filterValue) {
             ctx.save();
             ctx.translate(width, 0);
             ctx.scale(-1, 1);
             ctx.filter = filterValue || 'none';
             
-            // Get all active video elements dynamically
             const activeVids = Object.values(videoElements).filter(vid => vid && vid.srcObject);
-            const count = Math.max(1, activeVids.length); // Avoid division by zero
+            const count = Math.max(1, activeVids.length); 
             
             let cols = 1;
             let rows = 1;
 
             if (count % 2 === 0) {
-                // Even: Tile Collage
                 cols = 2;
                 rows = count / 2;
             } else {
-                // Odd: Vertical Collage (side by side vertical slices)
                 cols = count;
                 rows = 1;
             }
@@ -778,13 +712,11 @@
                 const x = col * cellW;
                 const y = row * cellH;
                 
-                // Draw this specific participant video into their designated cell
                 drawCenterCrop(ctx, vidElem, x, y, cellW, cellH);
                 
-                // Draw a dark dividing line between grids
                 if (count > 1) {
-                    ctx.filter = 'none'; // Temporarily clear filter so lines stay clean
-                    ctx.strokeStyle = '#1f2937'; // Match Tailwind CSS gray-800
+                    ctx.filter = 'none'; 
+                    ctx.strokeStyle = '#1f2937'; 
                     ctx.lineWidth = 4;
                     ctx.strokeRect(x, y, cellW, cellH);
                     ctx.filter = filterValue || 'none';
@@ -794,30 +726,45 @@
             ctx.restore();
         }
 
+        // --- HARDENED CAPTURE FUNCTION ---
         function captureFrame() {
             try {
                 const frameCanvas = document.createElement('canvas');
                 frameCanvas.width = config.videoWidth;
                 frameCanvas.height = config.videoHeight;
                 const ctx = frameCanvas.getContext('2d');
+                
+                // Draw a fallback background just in case video is dropped
+                ctx.fillStyle = '#111111';
+                ctx.fillRect(0, 0, frameCanvas.width, frameCanvas.height);
         
-                // Use the combined feed helper
-                drawCombinedFeed(ctx, config.videoWidth, config.videoHeight, filterSelect.value);
+                try {
+                    drawCombinedFeed(ctx, config.videoWidth, config.videoHeight, filterSelect.value);
+                } catch(drawErr) {
+                    console.warn("Failed rendering combined feed, using blank frame.", drawErr);
+                }
         
-                // Save the frame for the final strip
+                // Safely save it, even if drawing failed (it will just be a blank image but won't crash)
                 capturedFrames.push(frameCanvas);
         
-                // Safely attempt to update the live preview
-                livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8);
+                // Separate try-catch specifically for the thumbnail generation
+                try {
+                    livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8);
+                } catch (dataURLErr) {
+                    console.warn("Could not generate thumbnail preview (usually CORS). Proceeding anyway.", dataURLErr);
+                }
+                
+                // Force unhide the container regardless of image success
                 livePreviewContainer.classList.remove('hidden');
+                
             } catch (error) {
-                console.warn("Frame capture or preview failed (likely CORS/Tainted), but sequence will continue.", error);
+                console.error("Critical failure during frame capture:", error);
             }
         }
 
         function flashScreen() {
             flashOverlay.classList.remove('flash-active');
-            void flashOverlay.offsetWidth; // Trigger reflow
+            void flashOverlay.offsetWidth; 
             flashOverlay.classList.add('flash-active');
         }
 
@@ -830,158 +777,154 @@
             countdownOverlay.classList.add('hidden');
         }
 
+        // --- HARDENED RENDER FUNCTION ---
         function renderStrip() {
-            const totalPhotos = capturedFrames.length;
-            if (totalPhotos === 0) return;
-
-            // Calculate dimensions based on the aspect ratio of the captured frames
-            const frameAspect = config.videoWidth / config.videoHeight;
-            
-            // Set the width of the frame on the strip (accounting for padding)
-            const photoWidth = config.stripWidth - (config.padding * 2);
-            const photoHeight = photoWidth / frameAspect;
-
-            // Calculate total height of the canvas
-            const totalHeight = config.padding + (totalPhotos * photoHeight) + ((totalPhotos - 1) * config.padding) + config.bottomPadding;
-
-            stripCanvas.width = config.stripWidth;
-            stripCanvas.height = totalHeight;
-
-            const design = stripDesignSelect.value;
-            let textColor = '#000000';
-
-            // Base Background
-            if (design === 'dark') {
-                stripCtx.fillStyle = '#121212';
-                textColor = '#ffffff';
-            } else if (design === 'coffee') {
-                stripCtx.fillStyle = '#F4ECD8'; // Warm parchment
-            } else {
-                stripCtx.fillStyle = '#ffffff'; // Default base (for grid, white, or flowers prior to gradient overlay)
-            }
-            
-            stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
-
-            // Pattern overlays
-            if (design === 'grid') {
-                stripCtx.strokeStyle = '#bae6fd'; // Light blue
-                stripCtx.lineWidth = 2;
-                for(let x=0; x<stripCanvas.width; x+=40) {
-                    stripCtx.beginPath(); stripCtx.moveTo(x,0); stripCtx.lineTo(x,stripCanvas.height); stripCtx.stroke();
+            try {
+                const totalPhotos = capturedFrames.length;
+                if (totalPhotos === 0) {
+                    console.warn("No photos in array to render!");
+                    return;
                 }
-                for(let y=0; y<stripCanvas.height; y+=40) {
-                    stripCtx.beginPath(); stripCtx.moveTo(0,y); stripCtx.lineTo(stripCanvas.width,y); stripCtx.stroke();
+
+                const frameAspect = config.videoWidth / config.videoHeight;
+                const photoWidth = config.stripWidth - (config.padding * 2);
+                const photoHeight = photoWidth / frameAspect;
+                const totalHeight = config.padding + (totalPhotos * photoHeight) + ((totalPhotos - 1) * config.padding) + config.bottomPadding;
+
+                stripCanvas.width = config.stripWidth;
+                stripCanvas.height = totalHeight;
+
+                const design = stripDesignSelect.value;
+                let textColor = '#000000';
+
+                if (design === 'dark') {
+                    stripCtx.fillStyle = '#121212';
+                    textColor = '#ffffff';
+                } else if (design === 'coffee') {
+                    stripCtx.fillStyle = '#F4ECD8'; 
+                } else {
+                    stripCtx.fillStyle = '#ffffff'; 
                 }
-            } else if (design === 'coffee') {
-                // Add some "stains"
-                for(let i=0; i<400; i++) {
-                    stripCtx.beginPath(); 
-                    stripCtx.arc(Math.random()*stripCanvas.width, Math.random()*stripCanvas.height, Math.random()*2, 0, Math.PI*2);
-                    stripCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
-                    stripCtx.fill();
-                }
-            } else if (design === 'flowers') {
-                // Custom Field of Flowers Code
-                let grad = stripCtx.createLinearGradient(0, 0, 0, stripCanvas.height);
-                grad.addColorStop(0, '#e8f5e9');
-                grad.addColorStop(1, '#fffde7');
-                stripCtx.fillStyle = grad;
+                
                 stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
-                const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
+
+                if (design === 'grid') {
+                    stripCtx.strokeStyle = '#bae6fd'; 
+                    stripCtx.lineWidth = 2;
+                    for(let x=0; x<stripCanvas.width; x+=40) {
+                        stripCtx.beginPath(); stripCtx.moveTo(x,0); stripCtx.lineTo(x,stripCanvas.height); stripCtx.stroke();
+                    }
+                    for(let y=0; y<stripCanvas.height; y+=40) {
+                        stripCtx.beginPath(); stripCtx.moveTo(0,y); stripCtx.lineTo(stripCanvas.width,y); stripCtx.stroke();
+                    }
+                } else if (design === 'coffee') {
+                    for(let i=0; i<400; i++) {
+                        stripCtx.beginPath(); 
+                        stripCtx.arc(Math.random()*stripCanvas.width, Math.random()*stripCanvas.height, Math.random()*2, 0, Math.PI*2);
+                        stripCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
+                        stripCtx.fill();
+                    }
+                } else if (design === 'flowers') {
+                    let grad = stripCtx.createLinearGradient(0, 0, 0, stripCanvas.height);
+                    grad.addColorStop(0, '#e8f5e9');
+                    grad.addColorStop(1, '#fffde7');
+                    stripCtx.fillStyle = grad;
+                    stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
+                    const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
+                    stripCtx.textAlign = 'center';
+                    stripCtx.textBaseline = 'middle';
+                    for(let i = 0; i < 60; i++) {
+                        let x = Math.random() * stripCanvas.width;
+                        let y = Math.random() * stripCanvas.height;
+                        let emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                        let size = Math.random() * 50 + 30;
+                        stripCtx.font = `${size}px Arial`;
+                        stripCtx.globalAlpha = 0.6;
+                        stripCtx.save();
+                        stripCtx.translate(x, y);
+                        stripCtx.rotate(Math.random() * Math.PI * 2); 
+                        stripCtx.fillText(emoji, 0, 0);
+                        stripCtx.restore();
+                    }
+                    stripCtx.globalAlpha = 1.0;
+                    stripCtx.textAlign = 'left';
+                    stripCtx.textBaseline = 'alphabetic';
+                }
+
+                capturedFrames.forEach((frame, index) => {
+                    const yPos = config.padding + (index * (photoHeight + config.padding));
+                    stripCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                    stripCtx.shadowBlur = 10;
+                    stripCtx.shadowOffsetX = 0;
+                    stripCtx.shadowOffsetY = 4;
+                    stripCtx.drawImage(frame, config.padding, yPos, photoWidth, photoHeight);
+                    stripCtx.shadowColor = 'transparent';
+                    stripCtx.shadowBlur = 0;
+                });
+
+                stripCtx.fillStyle = textColor;
                 stripCtx.textAlign = 'center';
                 stripCtx.textBaseline = 'middle';
-                for(let i = 0; i < 60; i++) {
-                    let x = Math.random() * stripCanvas.width;
-                    let y = Math.random() * stripCanvas.height;
-                    let emoji = emojis[Math.floor(Math.random() * emojis.length)];
-                    let size = Math.random() * 50 + 30;
-                    stripCtx.font = `${size}px Arial`;
-                    stripCtx.globalAlpha = 0.6;
-                    stripCtx.save();
-                    stripCtx.translate(x, y);
-                    stripCtx.rotate(Math.random() * Math.PI * 2); 
-                    stripCtx.fillText(emoji, 0, 0);
-                    stripCtx.restore();
+                
+                const fontChoice = fontSelect.value;
+                const textYPos = stripCanvas.height - (config.bottomPadding / 2) - 15;
+
+                if (fontChoice === 'cursive') {
+                    stripCtx.font = 'bold 72px "Dancing Script", cursive';
+                    stripCtx.fillText("PhotoBoth", stripCanvas.width / 2, textYPos - 10);
+                } else if (fontChoice === 'romantic') {
+                    stripCtx.font = '84px "Great Vibes", cursive';
+                    stripCtx.fillText("PhotoBoth", stripCanvas.width / 2, textYPos - 10);
+                } else if (fontChoice === 'typewriter') {
+                    stripCtx.font = '54px "Special Elite", monospace';
+                    stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
+                } else if (fontChoice === 'sans-serif') {
+                    stripCtx.font = 'bold 54px "Inter", sans-serif';
+                    stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
+                } else { 
+                    stripCtx.font = 'bold 54px "Courier Prime", monospace';
+                    stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
                 }
-                stripCtx.globalAlpha = 1.0;
-                stripCtx.textAlign = 'left';
-                stripCtx.textBaseline = 'alphabetic';
-            }
-
-            // Draw photos
-            capturedFrames.forEach((frame, index) => {
-                const yPos = config.padding + (index * (photoHeight + config.padding));
                 
-                // Draw slight shadow for depth
-                stripCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-                stripCtx.shadowBlur = 10;
-                stripCtx.shadowOffsetX = 0;
-                stripCtx.shadowOffsetY = 4;
+                const today = new Date();
+                const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
                 
-                stripCtx.drawImage(frame, config.padding, yPos, photoWidth, photoHeight);
+                if (fontChoice === 'sans-serif') {
+                    stripCtx.font = '22px "Inter", sans-serif';
+                } else if (fontChoice === 'typewriter') {
+                    stripCtx.font = '24px "Special Elite", monospace';
+                } else if (fontChoice === 'romantic') {
+                    stripCtx.font = '36px "Great Vibes", cursive';
+                } else if (fontChoice === 'cursive') {
+                    stripCtx.font = '28px "Dancing Script", cursive';
+                } else {
+                    stripCtx.font = '24px "Courier Prime", monospace';
+                }
                 
-                // Reset shadow for next operations
-                stripCtx.shadowColor = 'transparent';
-                stripCtx.shadowBlur = 0;
-            });
+                stripCtx.fillText(dateStr, stripCanvas.width / 2, textYPos + 45);
 
-            // Draw text at the bottom
-            stripCtx.fillStyle = textColor;
-            stripCtx.textAlign = 'center';
-            stripCtx.textBaseline = 'middle';
-            
-            // Custom Font Selection Logic
-            const fontChoice = fontSelect.value;
-            const textYPos = stripCanvas.height - (config.bottomPadding / 2) - 15;
-
-            // Render Title
-            if (fontChoice === 'cursive') {
-                stripCtx.font = 'bold 72px "Dancing Script", cursive';
-                stripCtx.fillText("PhotoBoth", stripCanvas.width / 2, textYPos - 10);
-            } else if (fontChoice === 'romantic') {
-                stripCtx.font = '84px "Great Vibes", cursive';
-                stripCtx.fillText("PhotoBoth", stripCanvas.width / 2, textYPos - 10);
-            } else if (fontChoice === 'typewriter') {
-                stripCtx.font = '54px "Special Elite", monospace';
-                stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
-            } else if (fontChoice === 'sans-serif') {
-                stripCtx.font = 'bold 54px "Inter", sans-serif';
-                stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
-            } else { // Monospace default
-                stripCtx.font = 'bold 54px "Courier Prime", monospace';
-                stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
+            } catch (renderError) {
+                console.error("Failed executing strip render logic:", renderError);
+            } finally {
+                // Ensure UI unlocks unconditionally if there are frames
+                if (capturedFrames.length > 0) {
+                    stripCanvas.classList.remove('hidden');
+                    stripPlaceholder.classList.add('hidden');
+                    downloadBtn.classList.remove('hidden');
+                }
             }
-            
-            // Render Date (Keep it readable based on choice)
-            const today = new Date();
-            const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-            
-            if (fontChoice === 'sans-serif') {
-                stripCtx.font = '22px "Inter", sans-serif';
-            } else if (fontChoice === 'typewriter') {
-                stripCtx.font = '24px "Special Elite", monospace';
-            } else if (fontChoice === 'romantic') {
-                stripCtx.font = '36px "Great Vibes", cursive';
-            } else if (fontChoice === 'cursive') {
-                stripCtx.font = '28px "Dancing Script", cursive';
-            } else {
-                stripCtx.font = '24px "Courier Prime", monospace';
-            }
-            
-            stripCtx.fillText(dateStr, stripCanvas.width / 2, textYPos + 45);
-
-            // Show canvas and download button
-            stripCanvas.classList.remove('hidden');
-            stripPlaceholder.classList.add('hidden');
-            downloadBtn.classList.remove('hidden');
         }
 
         function downloadStrip() {
             if (capturedFrames.length === 0) return;
-            const link = document.createElement('a');
-            link.download = `film-strip-${Date.now()}.png`;
-            link.href = stripCanvas.toDataURL('image/png', 1.0);
-            link.click();
+            try {
+                const link = document.createElement('a');
+                link.download = `film-strip-${Date.now()}.png`;
+                link.href = stripCanvas.toDataURL('image/png', 1.0);
+                link.click();
+            } catch(e) {
+                alert("Security block: Cannot download. Right click the strip and save it directly.");
+            }
         }
 
         window.startSequence = async function() {
@@ -1014,7 +957,6 @@
                 let mediaRecorder = null;
                 let isVideoRecording = false;
 
-                // --- Safe Polaroid Style Video Setup ---
                 try {
                     const polaroidPadding = 40; 
                     const polaroidBottom = 160; 
@@ -1079,20 +1021,30 @@
                         bgCtx.globalAlpha = 1.0;
                     }
                     
+                    // CRITICAL FIX: Draw to the canvas BEFORE attempting captureStream
+                    recCtx.fillStyle = '#000000';
+                    recCtx.fillRect(0, 0, recordCanvas.width, recordCanvas.height);
+                    
                     if (!recordCanvas.captureStream) {
                         throw new Error("Canvas captureStream is not supported in this browser.");
                     }
                     const stream = recordCanvas.captureStream(30);
                     
+                    // More robust video format handling for broader browser support
                     let options = {};
-                    if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')) {
-                        options = { mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' };
-                    } else if (MediaRecorder.isTypeSupported('video/mp4')) {
-                        options = { mimeType: 'video/mp4' };
-                    } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
-                        options = { mimeType: 'video/webm; codecs=vp9' };
-                    } else if (MediaRecorder.isTypeSupported('video/webm')) {
-                        options = { mimeType: 'video/webm' };
+                    const mimeTypes = [
+                        'video/webm;codecs=vp9',
+                        'video/webm;codecs=vp8',
+                        'video/webm',
+                        'video/mp4;codecs=avc1',
+                        'video/mp4'
+                    ];
+                    
+                    for (const mime of mimeTypes) {
+                        if (MediaRecorder.isTypeSupported(mime)) {
+                            options = { mimeType: mime };
+                            break;
+                        }
                     }
                     
                     mediaRecorder = new MediaRecorder(stream, options);
@@ -1103,24 +1055,30 @@
                     };
                     
                     mediaRecorder.onstop = () => {
-                        let actualMimeType = mediaRecorder.mimeType || (options.mimeType || 'video/webm');
-                        let ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
-                        
-                        const blob = new Blob(recordedChunks, { type: actualMimeType });
-                        const videoUrl = URL.createObjectURL(blob);
-                        
-                        btsPreview.src = videoUrl;
-                        btsPreview.classList.remove('hidden');
+                        try {
+                            if (recordedChunks.length === 0) return;
+                            
+                            let actualMimeType = mediaRecorder.mimeType || (options.mimeType || 'video/webm');
+                            let ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
+                            
+                            const blob = new Blob(recordedChunks, { type: actualMimeType });
+                            const videoUrl = URL.createObjectURL(blob);
+                            
+                            btsPreview.src = videoUrl;
+                            btsPreview.classList.remove('hidden');
 
-                        downloadVideoBtn.onclick = () => {
-                            const a = document.createElement('a');
-                            a.style.display = 'none';
-                            a.href = videoUrl;
-                            a.download = `photobooth-bts-${Date.now()}.${ext}`;
-                            document.body.appendChild(a);
-                            a.click();
-                        };
-                        downloadVideoBtn.classList.remove('hidden');
+                            downloadVideoBtn.onclick = () => {
+                                const a = document.createElement('a');
+                                a.style.display = 'none';
+                                a.href = videoUrl;
+                                a.download = `photobooth-bts-${Date.now()}.${ext}`;
+                                document.body.appendChild(a);
+                                a.click();
+                            };
+                            downloadVideoBtn.classList.remove('hidden');
+                        } catch(vidErr) {
+                            console.error("Video processing failed after stop:", vidErr);
+                        }
                     };
                     
                     isVideoRecording = true;
@@ -1129,7 +1087,6 @@
                         if (!isVideoRecording) return;
                         
                         recCtx.drawImage(bgCanvas, 0, 0);
-                        
                         recCtx.save();
                         recCtx.translate(polaroidPadding, polaroidPadding);
                         recCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
@@ -1160,37 +1117,27 @@
                             recCtx.font = 'bold 48px "Courier Prime", monospace';
                             titleText = "PHOTOBOTH";
                         }
-                        
                         recCtx.fillText(titleText, recordCanvas.width / 2, textYPos - 15);
 
-                        const today = new Date();
-                        const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-                        
-                        if (fontChoice === 'sans-serif') {
-                            recCtx.font = '20px "Inter", sans-serif';
-                        } else if (fontChoice === 'typewriter') {
-                            recCtx.font = '22px "Special Elite", monospace';
-                        } else if (fontChoice === 'romantic') {
-                            recCtx.font = '32px "Great Vibes", cursive';
-                        } else if (fontChoice === 'cursive') {
-                            recCtx.font = '24px "Dancing Script", cursive';
-                        } else {
-                            recCtx.font = '22px "Courier Prime", monospace';
-                        }
+                        const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                        if (fontChoice === 'sans-serif') recCtx.font = '20px "Inter", sans-serif';
+                        else if (fontChoice === 'typewriter') recCtx.font = '22px "Special Elite", monospace';
+                        else if (fontChoice === 'romantic') recCtx.font = '32px "Great Vibes", cursive';
+                        else if (fontChoice === 'cursive') recCtx.font = '24px "Dancing Script", cursive';
+                        else recCtx.font = '22px "Courier Prime", monospace';
                         
                         recCtx.fillText(dateStr, recordCanvas.width / 2, textYPos + 35);
-                        
                         requestAnimationFrame(drawRecordFrame);
                     }
                     
                     drawRecordFrame();
                     mediaRecorder.start();
                 } catch (err) {
-                    console.warn("Behind The Scenes video recording failed. Skipping.", err);
+                    console.warn("Behind The Scenes video recording disabled.", err);
                     isVideoRecording = false; 
                 }
 
-                // Execute the countdown and frame capture
+                // Safely execute the capturing loop
                 for (let i = 0; i < config.totalPhotos; i++) {
                     await runCountdown();
                     captureFrame();
@@ -1198,26 +1145,20 @@
                     await delay(500); 
                 }
 
-                // Cleanly stop the video recording
+                // Safely stop video
                 if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                     isVideoRecording = false;
-                    try {
-                        mediaRecorder.stop();
-                    } catch (stopErr) {
-                        console.warn("Could not stop MediaRecorder cleanly.", stopErr);
-                    }
+                    try { mediaRecorder.stop(); } catch (e) { }
                 }
 
+                // Render out final images regardless of any earlier minor errors
                 renderStrip();
                 
             } catch (globalError) {
-                // If anything fails unexpectedly, catch it so we don't freeze the UI
                 console.error("Sequence Error:", globalError);
                 alert("An error occurred while generating your strip. Please try again.");
             } finally {
-                // Guaranteed to run: Release the lock and restore the button
                 window.isCapturing = false;
-                
                 startBtn.disabled = false;
                 photoCountSelect.disabled = false;
                 filterSelect.disabled = false;
@@ -1247,13 +1188,11 @@
             if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
 
-        // Re-render strip dynamically if design changes
         stripDesignSelect.addEventListener('change', () => {
             if (!isCapturing && capturedFrames.length > 0) renderStrip();
             if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
         
-        // Re-render strip dynamically if font changes
         fontSelect.addEventListener('change', () => {
             if (!isCapturing && capturedFrames.length > 0) renderStrip();
             if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
