@@ -1013,7 +1013,20 @@
             }
             
             const stream = recordCanvas.captureStream(30);
-            const mediaRecorder = new MediaRecorder(stream);
+            
+            // Try to force MP4 format if the browser supports it natively
+            let options = {};
+            if (MediaRecorder.isTypeSupported('video/mp4; codecs="avc1.42E01E, mp4a.40.2"')) {
+                options = { mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"' };
+            } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+                options = { mimeType: 'video/mp4' };
+            } else if (MediaRecorder.isTypeSupported('video/webm; codecs=vp9')) {
+                options = { mimeType: 'video/webm; codecs=vp9' };
+            } else if (MediaRecorder.isTypeSupported('video/webm')) {
+                options = { mimeType: 'video/webm' };
+            }
+            
+            const mediaRecorder = new MediaRecorder(stream, options);
             const recordedChunks = [];
             
             mediaRecorder.ondataavailable = (e) => {
@@ -1101,10 +1114,10 @@
             mediaRecorder.stop();
             
             mediaRecorder.onstop = () => {
-                let ext = 'webm';
-                if (mediaRecorder.mimeType && mediaRecorder.mimeType.includes('mp4')) ext = 'mp4';
+                let actualMimeType = mediaRecorder.mimeType || (options.mimeType || 'video/webm');
+                let ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
                 
-                const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+                const blob = new Blob(recordedChunks, { type: actualMimeType });
                 const videoUrl = URL.createObjectURL(blob);
                 
                 btsPreview.src = videoUrl;
