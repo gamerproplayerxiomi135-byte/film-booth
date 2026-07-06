@@ -46,25 +46,24 @@
         window.videoElements = {}; 
         
         // --- LAYOUT HELPER ---
-        // Finds a factor pair of `count` that tiles the grid with zero blank
-        // cells. Composite numbers (4, 6, 8, 9, 10...) get a proper rectangular
-        // grid. Numbers with no useful factor pair (3, 5, 7, 11... i.e. mostly
-        // odd/prime counts) get stacked vertically instead of leaving a gap —
-        // which also echoes the booth's own vertical photo-strip look.
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
 
+            // ODD: Neapolitan layout (side-by-side vertical strips)
+            // By placing everything in 1 row with N columns, we get tall vertical slices.
+            if (count % 2 !== 0) {
+                return { cols: count, rows: 1 };
+            }
+
+            // EVEN: Tiled format (balanced grid, e.g., 4 -> 2x2, 6 -> 3x2)
             for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
                 if (count % rows === 0) {
                     const cols = count / rows;
-                    if (rows === 1 && count > 2) {
-                        // Only trivial factor pair (1 x count) available — stack vertically
-                        return { cols: 1, rows: count };
-                    }
-                    return { cols, rows };
+                    return { cols: cols, rows: rows };
                 }
             }
-            return { cols: 1, rows: count }; // unreachable safety fallback
+            
+            return { cols: count, rows: 1 }; // Safety fallback
         };
         
         let cameraReadyResolver;
@@ -400,7 +399,6 @@
             if (!window.getGridLayout) return;
             const layout = window.getGridLayout(count);
             
-            // FIX: minmax(0, 1fr) strictly prevents videos from forcing larger heights, eliminating the cropped bottom
             grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
             grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
@@ -795,7 +793,6 @@
             const activeVids = getActiveVideos();
             const count = Math.max(1, activeVids.length); 
             
-            // FIX: Using the global layout generator to match the UI perfectly
             const layout = window.getGridLayout ? window.getGridLayout(count) : { cols: 1, rows: 1 };
             const cols = layout.cols;
             const rows = layout.rows;
