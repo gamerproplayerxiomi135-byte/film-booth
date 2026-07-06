@@ -51,30 +51,29 @@
         // grid. Numbers with no useful factor pair (3, 5, 7, 11... i.e. mostly
         // odd/prime counts) get stacked vertically instead of leaving a gap —
         // which also echoes the booth's own vertical photo-strip look.
+// Tiles even counts into balanced rectangular grids (prioritizing landscape).
+// Stacks odd counts into a vertical strip to match the photo booth look.
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
         
-            // We look for factor pairs by iterating from the square root downwards.
-            // To favor vertical layouts (like a photo strip), we want the 
-            // larger factor to be the number of rows.
+            // 1. ODD COUNT: Force vertical strip layout (1 column, N rows)
+            if (count % 2 !== 0) {
+                return { cols: 1, rows: count };
+            }
+        
+            // 2. EVEN COUNT: Find balanced factor pair
+            // We look for factor pairs starting from the square root.
             for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
                 if (count % factor === 0) {
                     const smallerFactor = factor;
                     const largerFactor = count / factor;
-        
-                    // If we only have a 1 x count pair, force it vertical (1 col, count rows)
-                    if (smallerFactor === 1) {
-                        return { cols: 1, rows: count };
-                    }
-        
-                    // By setting cols to the smaller factor and rows to the larger,
-                    // the grid will naturally stack vertically.
-                    return { cols: smallerFactor, rows: largerFactor };
+                    
+                    // Return even counts as a landscape grid
+                    return { cols: largerFactor, rows: smallerFactor };
                 }
             }
-            
-            // Safety fallback
-            return { cols: 1, rows: count };
+        
+            return { cols: count, rows: 1 };
         };
         
         let cameraReadyResolver;
