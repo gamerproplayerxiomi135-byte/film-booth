@@ -56,20 +56,23 @@
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
         
-            // Find the best factor pair
-            // We look for factor pairs starting from the square root.
+            // 1. ODD COUNT: Force vertical strip layout (1 column, N rows)
+            if (count % 2 !== 0) {
+                return { cols: 1, rows: count };
+            }
+        
+            // 2. EVEN COUNT: Find balanced factor pair
+            // We want the grid to be as square/rectangular as possible (landscape).
             for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
                 if (count % factor === 0) {
-                    const smallerFactor = factor;
-                    const largerFactor = count / factor;
-                    
-                    // Return counts with rows > cols to force a vertical stack
-                    // largerFactor is the number of rows, smallerFactor is the number of cols
-                    return { cols: smallerFactor, rows: largerFactor };
+                    const cols = count / factor;
+                    const rows = factor;
+                    // cols > rows results in the tiled rectangular look
+                    return { cols: cols, rows: rows };
                 }
             }
         
-            return { cols: 1, rows: count };
+            return { cols: count, rows: 1 };
         };
         
         let cameraReadyResolver;
