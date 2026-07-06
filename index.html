@@ -945,10 +945,72 @@
             livePreviewContainer.classList.add('hidden');
             livePreview.src = '';
 
+            // --- UPDATED: Polaroid Style Video Setup ---
+            const polaroidPadding = 40; // Side and top borders
+            const polaroidBottom = 160; // Bottom border for text
+
             const recordCanvas = document.createElement('canvas');
-            recordCanvas.width = config.videoWidth;
-            recordCanvas.height = config.videoHeight;
+            recordCanvas.width = config.videoWidth + (polaroidPadding * 2);
+            recordCanvas.height = config.videoHeight + polaroidPadding + polaroidBottom;
             const recCtx = recordCanvas.getContext('2d');
+            
+            // Generate the dynamic background ONCE for the video to prevent flickering
+            const bgCanvas = document.createElement('canvas');
+            bgCanvas.width = recordCanvas.width;
+            bgCanvas.height = recordCanvas.height;
+            const bgCtx = bgCanvas.getContext('2d');
+            
+            const design = stripDesignSelect.value;
+            let videoTextColor = '#000000';
+            
+            // Base Background
+            if (design === 'dark') {
+                bgCtx.fillStyle = '#121212';
+                videoTextColor = '#ffffff';
+            } else if (design === 'coffee') {
+                bgCtx.fillStyle = '#F4ECD8';
+            } else {
+                bgCtx.fillStyle = '#ffffff';
+            }
+            bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+            
+            // Pattern overlays
+            if (design === 'grid') {
+                bgCtx.strokeStyle = '#bae6fd';
+                bgCtx.lineWidth = 2;
+                for(let x=0; x<bgCanvas.width; x+=40) { bgCtx.beginPath(); bgCtx.moveTo(x,0); bgCtx.lineTo(x,bgCanvas.height); bgCtx.stroke(); }
+                for(let y=0; y<bgCanvas.height; y+=40) { bgCtx.beginPath(); bgCtx.moveTo(0,y); bgCtx.lineTo(bgCanvas.width,y); bgCtx.stroke(); }
+            } else if (design === 'coffee') {
+                for(let i=0; i<400; i++) {
+                    bgCtx.beginPath(); 
+                    bgCtx.arc(Math.random()*bgCanvas.width, Math.random()*bgCanvas.height, Math.random()*2, 0, Math.PI*2);
+                    bgCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
+                    bgCtx.fill();
+                }
+            } else if (design === 'flowers') {
+                let grad = bgCtx.createLinearGradient(0, 0, 0, bgCanvas.height);
+                grad.addColorStop(0, '#e8f5e9');
+                grad.addColorStop(1, '#fffde7');
+                bgCtx.fillStyle = grad;
+                bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+                const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
+                bgCtx.textAlign = 'center';
+                bgCtx.textBaseline = 'middle';
+                for(let i = 0; i < 60; i++) {
+                    let x = Math.random() * bgCanvas.width;
+                    let y = Math.random() * bgCanvas.height;
+                    let emoji = emojis[Math.floor(Math.random() * emojis.length)];
+                    let size = Math.random() * 50 + 30;
+                    bgCtx.font = `${size}px Arial`;
+                    bgCtx.globalAlpha = 0.6;
+                    bgCtx.save();
+                    bgCtx.translate(x, y);
+                    bgCtx.rotate(Math.random() * Math.PI * 2); 
+                    bgCtx.fillText(emoji, 0, 0);
+                    bgCtx.restore();
+                }
+                bgCtx.globalAlpha = 1.0;
+            }
             
             const stream = recordCanvas.captureStream(30);
             const mediaRecorder = new MediaRecorder(stream);
@@ -963,14 +1025,70 @@
             function drawRecordFrame() {
                 if (!isRecording) return;
                 
-                // Directly use the drawCombinedFeed logic to ensure BTS Video looks identical to Strip
-                drawCombinedFeed(recCtx, recordCanvas.width, recordCanvas.height, filterSelect.value);
+                // 1. Draw the pre-generated background
+                recCtx.drawImage(bgCanvas, 0, 0);
+                
+                // 2. Translate to the inner video frame and draw the camera feed
+                recCtx.save();
+                recCtx.translate(polaroidPadding, polaroidPadding);
+                // Draw slight shadow for depth behind video
+                recCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                recCtx.shadowBlur = 10;
+                recCtx.shadowOffsetY = 4;
+                drawCombinedFeed(recCtx, config.videoWidth, config.videoHeight, filterSelect.value);
+                recCtx.restore();
+
+                // 3. Add the Title and Date
+                const fontChoice = fontSelect.value;
+                const textYPos = recordCanvas.height - (polaroidBottom / 2) - 10;
+                
+                recCtx.fillStyle = videoTextColor; // Use color matching the design
+                recCtx.textAlign = 'center';
+                recCtx.textBaseline = 'middle';
+
+                // Title Font
+                let titleText = "PhotoBoth";
+                if (fontChoice === 'cursive') {
+                    recCtx.font = 'bold 64px "Dancing Script", cursive';
+                } else if (fontChoice === 'romantic') {
+                    recCtx.font = '76px "Great Vibes", cursive';
+                } else if (fontChoice === 'typewriter') {
+                    recCtx.font = '48px "Special Elite", monospace';
+                    titleText = "PHOTOBOTH";
+                } else if (fontChoice === 'sans-serif') {
+                    recCtx.font = 'bold 48px "Inter", sans-serif';
+                    titleText = "PHOTOBOTH";
+                } else { // Monospace default
+                    recCtx.font = 'bold 48px "Courier Prime", monospace';
+                    titleText = "PHOTOBOTH";
+                }
+                
+                recCtx.fillText(titleText, recordCanvas.width / 2, textYPos - 15);
+
+                // Date Font
+                const today = new Date();
+                const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+                
+                if (fontChoice === 'sans-serif') {
+                    recCtx.font = '20px "Inter", sans-serif';
+                } else if (fontChoice === 'typewriter') {
+                    recCtx.font = '22px "Special Elite", monospace';
+                } else if (fontChoice === 'romantic') {
+                    recCtx.font = '32px "Great Vibes", cursive';
+                } else if (fontChoice === 'cursive') {
+                    recCtx.font = '24px "Dancing Script", cursive';
+                } else {
+                    recCtx.font = '22px "Courier Prime", monospace';
+                }
+                
+                recCtx.fillText(dateStr, recordCanvas.width / 2, textYPos + 35);
                 
                 requestAnimationFrame(drawRecordFrame);
             }
             
             drawRecordFrame();
             mediaRecorder.start();
+            // --- END UPDATED BLOCK ---
 
             for (let i = 0; i < config.totalPhotos; i++) {
                 await runCountdown();
