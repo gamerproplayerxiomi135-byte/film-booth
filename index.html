@@ -53,17 +53,28 @@
         // which also echoes the booth's own vertical photo-strip look.
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
-
-        for (let cols = Math.floor(Math.sqrt(count)); cols >= 1; cols--) {
-            if (count % cols === 0) {
-                const rows = count / cols; // The larger number becomes the rows
-                return { cols, rows };
-            }
-        }
-                    return { cols, rows };
+        
+            // We look for factor pairs by iterating from the square root downwards.
+            // To favor vertical layouts (like a photo strip), we want the 
+            // larger factor to be the number of rows.
+            for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
+                if (count % factor === 0) {
+                    const smallerFactor = factor;
+                    const largerFactor = count / factor;
+        
+                    // If we only have a 1 x count pair, force it vertical (1 col, count rows)
+                    if (smallerFactor === 1) {
+                        return { cols: 1, rows: count };
+                    }
+        
+                    // By setting cols to the smaller factor and rows to the larger,
+                    // the grid will naturally stack vertically.
+                    return { cols: smallerFactor, rows: largerFactor };
                 }
             }
-            return { cols: 1, rows: count }; // unreachable safety fallback
+            
+            // Safety fallback
+            return { cols: 1, rows: count };
         };
         
         let cameraReadyResolver;
