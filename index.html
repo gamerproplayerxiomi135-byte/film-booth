@@ -62,17 +62,20 @@
             }
         
             // 2. EVEN COUNT: Find balanced factor pair
-            // We want the grid to be as square/rectangular as possible (landscape).
+            // We iterate to find factors, but force cols to be the smaller 
+            // number and rows to be the larger number to prioritize verticality.
             for (let factor = Math.floor(Math.sqrt(count)); factor >= 1; factor--) {
                 if (count % factor === 0) {
-            const cols = factor;
-            const rows = count / factor;
-            // rows > cols results in the vertical stacking look
-            return { cols: cols, rows: rows };
+                    const smallerFactor = factor;
+                    const largerFactor = count / factor;
+                    
+                    // By setting cols to the smaller factor and rows to the larger,
+                    // we force the grid to stack vertically on all devices.
+                    return { cols: smallerFactor, rows: largerFactor };
                 }
             }
         
-            return { cols: count, rows: 1 };
+            return { cols: 1, rows: count };
         };
         
         let cameraReadyResolver;
