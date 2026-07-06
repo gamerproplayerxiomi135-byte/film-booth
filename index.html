@@ -46,19 +46,25 @@
         window.videoElements = {}; 
         
         // --- LAYOUT HELPER ---
-        // Dynamically scales rows and columns based on the number of people
+        // Finds a factor pair of `count` that tiles the grid with zero blank
+        // cells. Composite numbers (4, 6, 8, 9, 10...) get a proper rectangular
+        // grid. Numbers with no useful factor pair (3, 5, 7, 11... i.e. mostly
+        // odd/prime counts) get stacked vertically instead of leaving a gap —
+        // which also echoes the booth's own vertical photo-strip look.
         window.getGridLayout = function(count) {
-            let cols = 1, rows = 1;
-            if (count <= 1) { cols = 1; rows = 1; }
-            else if (count === 2) { cols = 2; rows = 1; }
-            else if (count === 3 || count === 4) { cols = 2; rows = 2; }
-            else if (count >= 5 && count <= 6) { cols = 3; rows = 2; }
-            else if (count >= 7 && count <= 9) { cols = 3; rows = 3; }
-            else {
-                cols = Math.ceil(Math.sqrt(count));
-                rows = Math.ceil(count / cols);
+            if (count <= 1) return { cols: 1, rows: 1 };
+
+            for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
+                if (count % rows === 0) {
+                    const cols = count / rows;
+                    if (rows === 1 && count > 2) {
+                        // Only trivial factor pair (1 x count) available — stack vertically
+                        return { cols: 1, rows: count };
+                    }
+                    return { cols, rows };
+                }
             }
-            return { cols, rows };
+            return { cols: 1, rows: count }; // unreachable safety fallback
         };
         
         let cameraReadyResolver;
