@@ -799,7 +799,7 @@
             ctx.restore();
         }
 
-         function captureFrame() {
+        function captureFrame() {
             const frameCanvas = document.createElement('canvas');
             frameCanvas.width = config.videoWidth;
             frameCanvas.height = config.videoHeight;
@@ -816,8 +816,8 @@
                 livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8);
                 livePreviewContainer.classList.remove('hidden');
             } catch (error) {
-                console.warn("Canvas is tainted by CORS. Live preview is unavailable, but the photo was captured.", error);
-                // The script will now safely continue even if the preview fails
+                console.warn("Canvas preview failed (likely CORS/Tainted), but the frame was saved.", error);
+                // We catch the error so the loop doesn't crash and get stuck
             }
         }
 
