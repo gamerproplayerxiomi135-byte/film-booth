@@ -13,7 +13,7 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, serverTimestamp, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // ⚠️ REPLACE THIS ENTIRE OBJECT WITH YOUR FIREBASE CONFIGURATION ⚠️
         const firebaseConfig = {
@@ -39,19 +39,15 @@
         // --- WebRTC (PeerJS) Variables ---
         const peer = new Peer(); // Generates a unique PeerID automatically
         let localStream = null;
-        let currentCall = null;
+        const activeConnections = {};
+        const videoElements = {}; // Map holding peerId -> HTMLVideoElement
 
-        // Listen for incoming video calls from the partner
+        // Listen for incoming video calls from any new partners
         peer.on('call', (call) => {
-            currentCall = call;
+            activeConnections[call.peer] = call;
             call.answer(localStream); // Answer the call with our local video stream
             call.on('stream', (remoteStream) => {
-                const remoteFeed = document.getElementById('remote-feed');
-                if (remoteFeed) {
-                    remoteFeed.srcObject = remoteStream;
-                    // Hide placeholder text when video arrives
-                    document.getElementById('remote-placeholder').style.display = 'none';
-                }
+                addRemoteVideo(call.peer, remoteStream);
             });
         });
 
@@ -90,6 +86,9 @@
 
         // UI Elements assigned dynamically after page load
         window.addEventListener('DOMContentLoaded', () => {
+            // Register local camera in the dictionary
+            videoElements['local'] = document.getElementById('camera-feed');
+
             // UI Elements
             const roomSetup = document.getElementById('room-setup');
             const roomActive = document.getElementById('room-active');
@@ -122,7 +121,7 @@
                         setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
                             status: 'waiting', 
                             trigger: 'idle', 
-                            hostPeerId: peer.id, // SAVE OUR PEER ID FOR THE PARTNER TO CALL
+                            participants: [peer.id], // ARRAY SUPPORTING MULTIPLE USERS
                             settings: getCurrentSettingsFromDOM(), // SEED THE ROOM WITH OUR CURRENT CONTROLS
                             timestamp: serverTimestamp() 
                         }),
@@ -163,33 +162,20 @@
                             window.applyRemoteSettings(data.settings);
                         }
                         
-                        await updateDoc(roomRef, { status: 'ready' });
+                        // Add ourselves to the existing participant list
+                        await updateDoc(roomRef, { 
+                            status: 'ready',
+                            participants: arrayUnion(peer.id)
+                        });
         
                         roomSetup.classList.add('hidden');
                         roomActive.classList.remove('hidden');
                         roomActive.classList.add('flex');
                         displayCode.innerText = input;
                         
-                        roomStatus.innerText = "Partner Connected!";
-                        roomStatus.className = "text-sm font-semibold text-emerald-400";
-                        statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
-        
                         listenToRoom(input);
                         
-                        // SPLIT THE SCREEN IMMEDIATELY
-                        document.getElementById('partner-camera-container').classList.remove('hidden');
-                        document.getElementById('partner-camera-container').classList.add('flex');
-                        
-                        // CALL THE HOST BROWSER AUTOMATICALLY
-                        if (data.hostPeerId) {
-                            console.log("Calling partner...");
-                            
-                            currentCall = peer.call(data.hostPeerId, localStream);
-                            currentCall.on('stream', (remoteStream) => {
-                                document.getElementById('remote-feed').srcObject = remoteStream;
-                                document.getElementById('remote-placeholder').style.display = 'none';
-                            });
-                        }
+                        // Connection to peers is now handled dynamically by listenToRoom!
                     } else {
                         alert("Room not found. Check the code and try again.");
                     }
@@ -212,12 +198,19 @@
                 if (unsubscribe) unsubscribe();
                 currentRoom = null;
                 
-                // End the video call
-                if (currentCall) {
-                    currentCall.close();
-                    currentCall = null;
-                }
-                document.getElementById('remote-feed').srcObject = null;
+                // End all active video calls
+                Object.values(activeConnections).forEach(call => call.close());
+                
+                // Remove all remote videos from the UI
+                Object.keys(videoElements).forEach(peerId => {
+                    if (peerId !== 'local') {
+                        const wrapper = document.getElementById(`wrapper-${peerId}`);
+                        if (wrapper) wrapper.remove();
+                        delete videoElements[peerId];
+                        delete activeConnections[peerId];
+                    }
+                });
+                updateGridCSS();
                 
                 roomSetup.classList.remove('hidden');
                 roomActive.classList.add('hidden');
@@ -270,17 +263,30 @@
                 const data = docSnapshot.data();
                 if (!data) return;
         
-                // Update UI if partner joins
-                if (data.status === 'ready') {
-                    const roomStatus = document.getElementById('room-status');
-                    const statusDot = document.getElementById('status-dot');
-                    if(roomStatus) roomStatus.innerText = "Partner Connected!";
-                    if(roomStatus) roomStatus.className = "text-sm font-semibold text-emerald-400";
-                    if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
+                // Sync Multipoint Connections dynamically
+                if (data.participants) {
+                    const count = data.participants.length;
                     
-                    // SPLIT THE SCREEN IMMEDIATELY WHEN PARTNER JOINS (For Host)
-                    document.getElementById('partner-camera-container').classList.remove('hidden');
-                    document.getElementById('partner-camera-container').classList.add('flex');
+                    // Update UI status
+                    if (count > 1) {
+                        const roomStatus = document.getElementById('room-status');
+                        const statusDot = document.getElementById('status-dot');
+                        if(roomStatus) roomStatus.innerText = `${count} People Connected!`;
+                        if(roomStatus) roomStatus.className = "text-sm font-semibold text-emerald-400";
+                        if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
+                    }
+
+                    // Look for newly joined peers and call them
+                    data.participants.forEach(pId => {
+                        if (pId !== peer.id && !activeConnections[pId]) {
+                            console.log("Connecting to new partner:", pId);
+                            const call = peer.call(pId, localStream);
+                            activeConnections[pId] = call;
+                            call.on('stream', (remoteStream) => {
+                                addRemoteVideo(pId, remoteStream);
+                            });
+                        }
+                    });
                 }
 
                 // Keep camera settings (photo count, timer, filter, design, font) in sync
@@ -300,6 +306,53 @@
                     }
                 }
             });
+        }
+        
+        // DOM Helper: Injects new remote videos into the grid
+        function addRemoteVideo(peerId, stream) {
+            if (videoElements[peerId]) return; // Prevent duplicates
+            
+            const grid = document.getElementById('video-grid');
+            
+            const wrapper = document.createElement('div');
+            wrapper.className = 'relative w-full h-full bg-gray-800 flex items-center justify-center flex-shrink-0';
+            wrapper.id = `wrapper-${peerId}`;
+
+            const vid = document.createElement('video');
+            vid.className = 'w-full h-full object-cover transition-all duration-300';
+            vid.autoplay = true;
+            vid.playsInline = true;
+            vid.srcObject = stream;
+            vid.style.transform = 'scaleX(-1)'; // Mirror for consistency
+
+            const label = document.createElement('div');
+            label.className = 'absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10';
+            label.innerText = `PARTNER ${Object.keys(videoElements).length}`;
+
+            wrapper.appendChild(vid);
+            wrapper.appendChild(label);
+            grid.appendChild(wrapper);
+            
+            videoElements[peerId] = vid;
+            updateGridCSS();
+        }
+
+        // DOM Helper: Adjusts the grid dynamically up to 4 users (2x2)
+        function updateGridCSS() {
+            const count = Object.keys(videoElements).length;
+            const grid = document.getElementById('video-grid');
+            
+            // Remove existing grid classes
+            grid.classList.remove('grid-cols-1', 'grid-cols-2', 'grid-rows-1', 'grid-rows-2');
+            
+            // Apply new dynamic grid structure
+            if (count > 2) {
+                grid.classList.add('grid-cols-2', 'grid-rows-2');
+            } else if (count === 2) {
+                grid.classList.add('grid-cols-2', 'grid-rows-1');
+            } else {
+                grid.classList.add('grid-cols-1', 'grid-rows-1');
+            }
         }
         
         // Setup Camera Stream globally for PeerJS to use
@@ -399,36 +452,16 @@
                     </div>
                 </div>
 
-                <!-- Active Mode: Connected or Waiting -->
-            <div id="room-active" class="hidden flex-col gap-3 items-center text-center">
-                <p class="text-xs text-gray-400 uppercase tracking-wider">Room Code</p>
-                <div class="flex justify-center items-center gap-2 bg-gray-900 p-2 rounded-lg border border-gray-700 w-full max-w-[250px]">
-                    <h2 id="display-room-code" class="text-3xl font-mono font-bold tracking-widest text-white">----</h2>
-                    <button id="copy-code-btn" class="p-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors" title="Copy Code">📋</button>
-                </div>
-                <div class="flex items-center gap-2 mt-1">
-                    <span id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></span>
-                    <p id="room-status" class="text-sm font-semibold text-yellow-500">Waiting for partner...</p>
-                </div>
-                <button id="leave-room-btn" class="text-xs text-gray-500 hover:text-red-400 mt-2 underline transition-colors">Leave Room</button>
-            </div>
-        </div>
-
-        <!-- UPDATED Camera Viewfinder (Side-by-Side) -->
+        <!-- UPDATED Camera Viewfinder (Dynamic Grid) -->
         <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner aspect-[4/3] md:aspect-video transition-all duration-300">
-            <div class="flex w-full h-full divide-x divide-gray-700">
+            <div id="video-grid" class="w-full h-full grid grid-cols-1 grid-rows-1 divide-x divide-y divide-gray-700">
                 <!-- Local Camera -->
-                <div class="relative flex-1 h-full bg-gray-900 flex-shrink-0">
+                <div class="relative w-full h-full bg-gray-900 flex-shrink-0">
                     <!-- Muted so you don't hear yourself -->
                     <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline muted></video>
                     <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10">YOU</div>
                 </div>
-                <!-- Partner Camera -->
-                <div id="partner-camera-container" class="relative flex-1 h-full bg-gray-800 flex items-center justify-center flex-shrink-0 hidden">
-                    <video id="remote-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline></video>
-                    <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10">PARTNER</div>
-                    <span id="remote-placeholder" class="text-gray-500 text-xs text-center px-4 absolute">Waiting for video stream...<br><span class="text-[10px]">(Check camera permissions)</span></span>
-                </div>
+                <!-- Partner cameras will be dynamically injected here -->
             </div>
             
             <!-- Countdown Overlay (Covers both feeds) -->
@@ -701,37 +734,43 @@
             ctx.drawImage(sourceVid, sx, sy, sw, sh, targetX, targetY, targetW, targetH);
         }
 
+        // Dynamic multi-grid Canvas Drawer
         function drawCombinedFeed(ctx, width, height, filterValue) {
             ctx.save();
             ctx.translate(width, 0);
             ctx.scale(-1, 1);
             ctx.filter = filterValue || 'none';
             
-            // Check if the right-side partner container is active
-            const partnerContainer = document.getElementById('partner-camera-container');
-            const isPartnerConnected = !partnerContainer.classList.contains('hidden');
+            // Get all active video elements dynamically
+            const activeVids = Object.values(videoElements).filter(vid => vid && vid.srcObject);
+            const count = activeVids.length;
+            
+            // Calculate grid rows and columns (max 2x2 supported natively)
+            const cols = count > 1 ? 2 : 1;
+            const rows = count > 2 ? 2 : 1;
+            
+            const cellW = width / cols;
+            const cellH = height / rows;
 
-            if (isPartnerConnected) {
-                const halfW = width / 2;
+            activeVids.forEach((vidElem, index) => {
+                const col = index % cols;
+                const row = Math.floor(index / cols);
+                const x = col * cellW;
+                const y = row * cellH;
                 
-                // Draw YOU on the right half mathematically (so it mirrors to the left)
-                drawCenterCrop(ctx, video, halfW, 0, halfW, height);
+                // Draw this specific participant video into their designated cell
+                drawCenterCrop(ctx, vidElem, x, y, cellW, cellH);
                 
-                // Draw PARTNER on the left half mathematically (so it mirrors to the right)
-                drawCenterCrop(ctx, remoteVideo, 0, 0, halfW, height);
-                
-                // Draw divider line
-                ctx.filter = 'none'; // reset for divider
-                ctx.strokeStyle = '#1f2937'; // Match Tailwind gray-800
-                ctx.lineWidth = 4;
-                ctx.beginPath(); 
-                ctx.moveTo(halfW, 0); 
-                ctx.lineTo(halfW, height); 
-                ctx.stroke();
-            } else {
-                // SOLO MODE: Draw the video to fill the entire width and height exactly like the UI
-                drawCenterCrop(ctx, video, 0, 0, width, height);
-            }
+                // Draw a dark dividing line between grids
+                if (count > 1) {
+                    ctx.filter = 'none'; // Temporarily clear filter so lines stay clean
+                    ctx.strokeStyle = '#1f2937'; // Match Tailwind CSS gray-800
+                    ctx.lineWidth = 4;
+                    ctx.strokeRect(x, y, cellW, cellH);
+                    ctx.filter = filterValue || 'none';
+                }
+            });
+            
             ctx.restore();
         }
 
