@@ -799,20 +799,26 @@
             ctx.restore();
         }
 
-        function captureFrame() {
+         function captureFrame() {
             const frameCanvas = document.createElement('canvas');
             frameCanvas.width = config.videoWidth;
             frameCanvas.height = config.videoHeight;
             const ctx = frameCanvas.getContext('2d');
-            
+        
             // Use the combined feed helper
             drawCombinedFeed(ctx, config.videoWidth, config.videoHeight, filterSelect.value);
-
+        
+            // Save the frame for the final strip
             capturedFrames.push(frameCanvas);
-
-            // Update live preview
-            livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8);
-            livePreviewContainer.classList.remove('hidden');
+        
+            // Safely attempt to update the live preview
+            try {
+                livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8);
+                livePreviewContainer.classList.remove('hidden');
+            } catch (error) {
+                console.warn("Canvas is tainted by CORS. Live preview is unavailable, but the photo was captured.", error);
+                // The script will now safely continue even if the preview fails
+            }
         }
 
         function flashScreen() {
