@@ -54,13 +54,12 @@
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
 
-            for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
-                if (count % rows === 0) {
-                    const cols = count / rows;
-                    if (rows === 1 && count > 2) {
-                        // Only trivial factor pair (1 x count) available — stack vertically
-                        return { cols: 1, rows: count };
-                    }
+        for (let cols = Math.floor(Math.sqrt(count)); cols >= 1; cols--) {
+            if (count % cols === 0) {
+                const rows = count / cols; // The larger number becomes the rows
+                return { cols, rows };
+            }
+        }
                     return { cols, rows };
                 }
             }
