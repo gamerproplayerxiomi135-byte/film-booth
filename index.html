@@ -45,12 +45,23 @@
         
         window.videoElements = {}; 
         
+        // Mobile Fix: Aggressively ensure videos play on strict mobile browsers
+        setInterval(() => {
+            Object.values(window.videoElements).forEach(vid => {
+                if (vid && vid.paused && vid.srcObject) {
+                    const playPromise = vid.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(() => {}); // silently catch auto-play blocks
+                    }
+                }
+            });
+        }, 2000);
+
         // --- LAYOUT HELPER ---
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
 
             // ODD: Neapolitan layout (side-by-side vertical strips)
-            // By placing everything in 1 row with N columns, we get tall vertical slices.
             if (count % 2 !== 0) {
                 return { cols: count, rows: 1 };
             }
@@ -358,30 +369,44 @@
             const grid = document.getElementById('video-grid');
             
             const wrapper = document.createElement('div');
-            // FIX: Added min-h-0 min-w-0 so CSS Grid bounds strictly contain the video intrinsic sizes
             wrapper.className = 'relative w-full h-full bg-gray-800 flex items-center justify-center flex-shrink-0 min-h-0 min-w-0';
             wrapper.id = `wrapper-${peerId}`;
 
             const vid = document.createElement('video');
             vid.className = 'w-full h-full object-cover transition-all duration-300';
-            vid.autoplay = true;
-            vid.playsInline = true;
-            vid.muted = true; 
-            vid.srcObject = stream;
-            vid.style.transform = 'scaleX(-1)'; 
             
-            vid.play().catch(e => console.warn("Remote play failed", e));
+            // STRICT MOBILE FIX: Use setAttribute for iOS compatibility
+            vid.setAttribute('autoplay', 'autoplay');
+            vid.setAttribute('playsinline', 'playsinline');
+            vid.setAttribute('muted', 'muted');
+            vid.muted = true; 
+            vid.style.transform = 'scaleX(-1)'; 
 
             const label = document.createElement('div');
             label.className = 'absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10';
             label.innerText = `PARTNER`;
 
+            // STRICT MOBILE FIX: Append to DOM BEFORE assigning srcObject
             wrapper.appendChild(vid);
             wrapper.appendChild(label);
             grid.appendChild(wrapper);
             
             window.videoElements[peerId] = vid;
             updateGridCSS();
+            
+            // Assign stream after it is in the DOM
+            vid.srcObject = stream;
+            
+            // Force browser to load and play
+            try {
+                vid.load();
+                const playPromise = vid.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(e => console.warn("Remote initial play failed, interval will retry.", e));
+                }
+            } catch (err) {
+                console.error("Video force-play error:", err);
+            }
         }
 
         function removeRemoteVideo(peerId) {
@@ -746,7 +771,6 @@
                 startBtn.disabled = true;
                 startBtn.classList.add('opacity-50', 'cursor-not-allowed');
                 
-                // CRITICAL FIX: Ensure the promise resolves even on failure so the app doesn't hang.
                 if(cameraReadyResolver) {
                     cameraReadyResolver();
                 }
