@@ -45,6 +45,12 @@
         
         window.videoElements = {}; 
         
+        // Mobile Fix: Strict Camera Lock Promise
+        let cameraReadyResolver;
+        window.cameraReadyPromise = new Promise((resolve) => {
+            cameraReadyResolver = resolve;
+        });
+
         // Mobile Fix: Aggressively ensure videos play on strict mobile browsers
         setInterval(() => {
             Object.values(window.videoElements).forEach(vid => {
@@ -90,9 +96,11 @@
         peer.on('call', async (call) => {
             console.log("Incoming call from:", call.peer);
             
+            // STRICT LOCK: Do not answer until local camera is hot and ready.
             await window.cameraReadyPromise; 
             
             activeConnections[call.peer] = call;
+            // Now safe to answer because localStream is guaranteed to exist
             call.answer(localStream); 
             
             call.on('stream', (remoteStream) => {
@@ -328,6 +336,8 @@
                         if (pId !== peer.id && !activeConnections[pId]) {
                             if (peer.id > pId) {
                                 console.log("Initiating outbound call to:", pId);
+                                
+                                // STRICT LOCK: Do not call until local camera is hot.
                                 window.cameraReadyPromise.then(() => {
                                     const call = peer.call(pId, localStream);
                                     activeConnections[pId] = call;
@@ -430,8 +440,9 @@
         
         window.setLocalStream = (stream) => {
             localStream = stream;
+            // RELEASE THE LOCK: Mobile camera is hot and ready to be broadcast.
             if(cameraReadyResolver) {
-                cameraReadyResolver();
+                cameraReadyResolver(stream);
             }
         }
     </script>
