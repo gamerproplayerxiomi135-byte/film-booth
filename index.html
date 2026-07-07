@@ -82,11 +82,6 @@
             
             return { cols: count, rows: 1 }; // Safety fallback
         };
-        
-        let cameraReadyResolver;
-        window.cameraReadyPromise = new Promise((resolve) => {
-            cameraReadyResolver = resolve;
-        });
 
         peer.on('open', (id) => {
             isPeerReady = true;
