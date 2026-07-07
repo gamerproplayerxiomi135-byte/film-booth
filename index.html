@@ -524,8 +524,10 @@
 
                 <div id="flash-overlay" class="absolute inset-0 bg-white opacity-0 pointer-events-none z-20"></div>
                 
-                <div id="camera-error" class="absolute inset-0 flex items-center justify-center p-6 text-center text-red-400 bg-gray-900 hidden z-30">
-                    Unable to access camera. Please check your permissions and refresh.
+                <!-- Updated Error Message with Retry Button -->
+                <div id="camera-error" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-red-400 bg-gray-900 hidden z-30">
+                    <p class="mb-4">Unable to access camera. Please check your permissions and refresh.</p>
+                    <button id="retry-camera-btn" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-md text-sm transition-colors">Retry Camera</button>
                 </div>
             </div>
 
@@ -653,6 +655,7 @@
         const countdownOverlay = document.getElementById('countdown-overlay');
         const flashOverlay = document.getElementById('flash-overlay');
         const cameraError = document.getElementById('camera-error');
+        const retryCameraBtn = document.getElementById('retry-camera-btn'); // New retry button
         const stripCanvas = document.getElementById('strip-canvas');
         const btsPreview = document.getElementById('bts-preview');
         const stripPlaceholder = document.getElementById('strip-placeholder');
@@ -664,6 +667,14 @@
         const livePreview = document.getElementById('live-preview');
         
         window.isCapturing = false;
+
+        // Added event listener to handle retrying the camera permission prompt
+        if (retryCameraBtn) {
+            retryCameraBtn.addEventListener('click', () => {
+                cameraError.classList.add('hidden');
+                initCamera();
+            });
+        }
 
         window.applyRemoteSettings = function(settings) {
             if (!settings || window.isCapturing) return;
@@ -725,11 +736,20 @@
                 if(window.setLocalStream) {
                     window.setLocalStream(stream);
                 }
+                
+                cameraError.classList.add('hidden');
+                startBtn.disabled = false;
+                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             } catch (err) {
                 console.error("Camera access denied or unavailable:", err);
                 cameraError.classList.remove('hidden');
                 startBtn.disabled = true;
                 startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                
+                // CRITICAL FIX: Ensure the promise resolves even on failure so the app doesn't hang.
+                if(cameraReadyResolver) {
+                    cameraReadyResolver();
+                }
             }
         }
 
