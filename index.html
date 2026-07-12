@@ -413,12 +413,18 @@
         <div class="w-full md:w-[40%] lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
             <div class="w-full flex justify-between items-center mb-4 flex-wrap gap-2">
                 <h2 class="text-xl font-semibold text-white">Your Strip & BTS</h2>
-                <div class="flex gap-2">
-                    <button id="download-video-btn" class="hidden px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-md text-sm transition-colors shadow-md flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> BTS Video
+                <div class="flex gap-2 flex-wrap justify-end">
+                    <button id="download-video-strip-btn" class="hidden px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                        Strip Video
                     </button>
-                    <button id="download-btn" class="hidden px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-sm transition-colors shadow-md flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg> Strip
+                    <button id="download-video-grid-btn" class="hidden px-3 py-2 bg-pink-600 hover:bg-pink-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+                        Grid Video
+                    </button>
+                    <button id="download-btn" class="hidden px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                        <span id="photo-dl-text">Photo</span>
                     </button>
                 </div>
             </div>
@@ -440,7 +446,8 @@
         const photoCountSelect = document.getElementById('photo-count-select');
         const startBtn = document.getElementById('start-btn');
         const downloadBtn = document.getElementById('download-btn');
-        const downloadVideoBtn = document.getElementById('download-video-btn');
+        const downloadVideoStripBtn = document.getElementById('download-video-strip-btn');
+        const downloadVideoGridBtn = document.getElementById('download-video-grid-btn');
         const countdownOverlay = document.getElementById('countdown-overlay');
         const flashOverlay = document.getElementById('flash-overlay');
         const cameraError = document.getElementById('camera-error');
@@ -456,8 +463,7 @@
         const livePreview = document.getElementById('live-preview');
         
         window.isCapturing = false;
-        window.currentActiveSlot = -1; // Controls the video style rendering
-        window.flashOpacity = 0; // Controls video flash effect
+        window.currentActiveSlot = -1; // Controls the "Life Four Cuts" video style rendering
 
         if (retryCameraBtn) {
             retryCameraBtn.addEventListener('click', () => {
@@ -643,28 +649,15 @@
             const totalPhotos = capturedFrames.length;
             if (totalPhotos === 0) return;
 
-            const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
-            const layout = window.getGridLayout ? window.getGridLayout(totalPhotos, !isPolaroid) : { cols: 1, rows: totalPhotos };
-            
-            const frameAspect = config.videoWidth / config.videoHeight;
-            
-            // Calculate width based on columns needed
+            const isPolaroid = stripDesignSelect.value === 'polaroid';
+            const layout = isPolaroid ? window.getGridLayout(totalPhotos) : { cols: 1, rows: totalPhotos };
             const columns = layout.cols;
             const rows = layout.rows;
-            
-            let photoWidth, photoHeight;
-            
-            if (isPolaroid) {
-                // In polaroid grid mode, calculate cell width based on available space
-                const totalAvailableWidth = config.stripWidth - (config.padding * 2) - ((columns - 1) * config.padding);
-                photoWidth = totalAvailableWidth / columns;
-                photoHeight = photoWidth / frameAspect;
-            } else {
-                // Normal strip mode
-                photoWidth = config.stripWidth - (config.padding * 2);
-                photoHeight = photoWidth / frameAspect;
-            }
 
+            const frameAspect = config.videoWidth / config.videoHeight;
+            const totalAvailableWidth = config.stripWidth - (config.padding * 2) - ((columns - 1) * config.padding);
+            const photoWidth = totalAvailableWidth / columns;
+            const photoHeight = photoWidth / frameAspect;
             const totalHeight = config.padding + (rows * photoHeight) + ((rows - 1) * config.padding) + config.bottomPadding;
 
             stripCanvas.width = config.stripWidth; stripCanvas.height = totalHeight;
@@ -674,7 +667,6 @@
             capturedFrames.forEach((frame, index) => {
                 const col = index % columns;
                 const row = Math.floor(index / columns);
-                
                 const xPos = config.padding + (col * (photoWidth + config.padding));
                 const yPos = config.padding + (row * (photoHeight + config.padding));
                 
@@ -682,6 +674,9 @@
                 stripCtx.drawImage(frame, xPos, yPos, photoWidth, photoHeight);
                 stripCtx.shadowColor = 'transparent'; stripCtx.shadowBlur = 0;
             });
+            
+            const photoDlText = document.getElementById('photo-dl-text');
+            if (photoDlText) photoDlText.innerText = isPolaroid ? 'Grid Photo' : 'Strip Photo';
 
             stripCanvas.classList.remove('hidden'); stripPlaceholder.classList.add('hidden'); downloadBtn.classList.remove('hidden');
         }
@@ -706,55 +701,85 @@
                 stripDesignSelect.disabled = true; countdownSelect.disabled = true; fontSelect.disabled = true;
                 
                 startBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Capturing...';
-                downloadBtn.classList.add('hidden'); downloadVideoBtn.classList.add('hidden');
+                downloadBtn.classList.add('hidden'); downloadVideoStripBtn.classList.add('hidden'); downloadVideoGridBtn.classList.add('hidden');
                 stripPlaceholder.classList.remove('hidden'); stripCanvas.classList.add('hidden');
                 btsPreview.classList.add('hidden'); btsPreview.src = '';
                 livePreviewContainer.classList.add('hidden'); livePreview.src = '';
 
-                let mediaRecorder = null;
+                let stripMediaRecorder = null;
+                let gridMediaRecorder = null;
                 let isVideoRecording = false;
 
-                // --- VIDEO GENERATION ENGINE (Always a vertical strip) ---
+                // --- DUAL VIDEO GENERATION ENGINE ---
                 const frameAspect = config.videoWidth / config.videoHeight;
-                const photoWidth = config.stripWidth - (config.padding * 2);
-                const photoHeight = photoWidth / frameAspect;
-                const totalHeight = config.padding + (config.totalPhotos * photoHeight) + ((config.totalPhotos - 1) * config.padding) + config.bottomPadding;
-
-                // Scale down the hidden video recording canvas to 50% to prevent mobile hardware encoders from crashing due to height limits
-                const scale = 0.5; 
-                const recordCanvas = document.createElement('canvas');
-                recordCanvas.width = config.stripWidth * scale;
-                recordCanvas.height = totalHeight * scale;
-                const recCtx = recordCanvas.getContext('2d');
+                const scale = 0.5; // Scale down for mobile performance
                 
-                const bgCanvas = prepareStripBackground(config.stripWidth, totalHeight);
+                // 1. STRIP VIDEO CANVAS MATH
+                const stripRows = config.totalPhotos;
+                const stripPhotoWidth = config.stripWidth - (config.padding * 2);
+                const stripPhotoHeight = stripPhotoWidth / frameAspect;
+                const stripTotalHeight = config.padding + (stripRows * stripPhotoHeight) + ((stripRows - 1) * config.padding) + config.bottomPadding;
+
+                const stripRecCanvas = document.createElement('canvas');
+                stripRecCanvas.width = config.stripWidth * scale;
+                stripRecCanvas.height = stripTotalHeight * scale;
+                const stripRecCtx = stripRecCanvas.getContext('2d');
+                const stripBgCanvas = prepareStripBackground(config.stripWidth, stripTotalHeight);
+
+                // 2. GRID VIDEO CANVAS MATH
+                const gridLayout = window.getGridLayout(config.totalPhotos);
+                const gridCols = gridLayout.cols;
+                const gridRows = gridLayout.rows;
+                const gridAvailableWidth = config.stripWidth - (config.padding * 2) - ((gridCols - 1) * config.padding);
+                const gridPhotoWidth = gridAvailableWidth / gridCols;
+                const gridPhotoHeight = gridPhotoWidth / frameAspect;
+                const gridTotalHeight = config.padding + (gridRows * gridPhotoHeight) + ((gridRows - 1) * config.padding) + config.bottomPadding;
+
+                const gridRecCanvas = document.createElement('canvas');
+                gridRecCanvas.width = config.stripWidth * scale;
+                gridRecCanvas.height = gridTotalHeight * scale;
+                const gridRecCtx = gridRecCanvas.getContext('2d');
+                const gridBgCanvas = prepareStripBackground(config.stripWidth, gridTotalHeight);
 
                 try {
-                    if (!recordCanvas.captureStream) throw new Error("Canvas captureStream is not supported in this browser.");
-                    const stream = recordCanvas.captureStream(30);
+                    if (!stripRecCanvas.captureStream || !gridRecCanvas.captureStream) throw new Error("CaptureStream not supported.");
                     
-                    const mimeTypes = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+                    const mimeTypes = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
                     let options = {};
                     for (const mime of mimeTypes) { if (MediaRecorder.isTypeSupported(mime)) { options = { mimeType: mime }; break; } }
                     
-                    mediaRecorder = new MediaRecorder(stream, options);
-                    const recordedChunks = [];
-                    
-                    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
-                    
-                    mediaRecorder.onstop = () => {
+                    // INITIALIZE STRIP RECORDER
+                    stripMediaRecorder = new MediaRecorder(stripRecCanvas.captureStream(30), options);
+                    const stripChunks = [];
+                    stripMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) stripChunks.push(e.data); };
+                    stripMediaRecorder.onstop = () => {
                         try {
-                            if (recordedChunks.length === 0) return;
-                            let actualMimeType = mediaRecorder.mimeType || (options.mimeType || 'video/webm');
-                            let ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
-                            const blob = new Blob(recordedChunks, { type: actualMimeType });
-                            const videoUrl = URL.createObjectURL(blob);
-                            btsPreview.src = videoUrl; btsPreview.classList.remove('hidden');
-                            downloadVideoBtn.onclick = () => {
-                                const a = document.createElement('a'); a.style.display = 'none'; a.href = videoUrl;
-                                a.download = `photobooth-bts-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
+                            if (stripChunks.length === 0) return;
+                            let ext = (stripMediaRecorder.mimeType || options.mimeType || 'video/webm').includes('mp4') ? 'mp4' : 'webm';
+                            const url = URL.createObjectURL(new Blob(stripChunks, { type: stripMediaRecorder.mimeType }));
+                            btsPreview.src = url; btsPreview.classList.remove('hidden'); // Show strip video in preview
+                            downloadVideoStripBtn.onclick = () => {
+                                const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
+                                a.download = `photobooth-strip-video-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
                             };
-                            downloadVideoBtn.classList.remove('hidden');
+                            downloadVideoStripBtn.classList.remove('hidden');
+                        } catch(vidErr) {}
+                    };
+
+                    // INITIALIZE GRID RECORDER
+                    gridMediaRecorder = new MediaRecorder(gridRecCanvas.captureStream(30), options);
+                    const gridChunks = [];
+                    gridMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) gridChunks.push(e.data); };
+                    gridMediaRecorder.onstop = () => {
+                        try {
+                            if (gridChunks.length === 0) return;
+                            let ext = (gridMediaRecorder.mimeType || options.mimeType || 'video/webm').includes('mp4') ? 'mp4' : 'webm';
+                            const url = URL.createObjectURL(new Blob(gridChunks, { type: gridMediaRecorder.mimeType }));
+                            downloadVideoGridBtn.onclick = () => {
+                                const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
+                                a.download = `photobooth-grid-video-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
+                            };
+                            downloadVideoGridBtn.classList.remove('hidden');
                         } catch(vidErr) {}
                     };
                     
@@ -765,49 +790,66 @@
                     function drawRecordFrame() {
                         if (!isVideoRecording) return;
                         
-                        recCtx.save();
-                        recCtx.scale(scale, scale); // Apply 0.5x scaling
-                        
-                        // Draw the Strip Design
-                        recCtx.drawImage(bgCanvas, 0, 0);
-
+                        // DRAW STRIP
+                        stripRecCtx.save();
+                        stripRecCtx.scale(scale, scale); 
+                        stripRecCtx.drawImage(stripBgCanvas, 0, 0);
                         for (let i = 0; i < config.totalPhotos; i++) {
-                            const yPos = config.padding + (i * (photoHeight + config.padding));
-                            
-                            recCtx.save();
-                            recCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-                            recCtx.shadowBlur = 10;
-                            recCtx.shadowOffsetX = 0;
-                            recCtx.shadowOffsetY = 4;
-
+                            const yPos = config.padding + (i * (stripPhotoHeight + config.padding));
+                            stripRecCtx.save();
+                            stripRecCtx.shadowColor = 'rgba(0, 0, 0, 0.2)'; stripRecCtx.shadowBlur = 10; stripRecCtx.shadowOffsetY = 4;
                             if (i < capturedFrames.length) {
-                                // Draw static, already-captured photo
-                                recCtx.drawImage(capturedFrames[i], config.padding, yPos, photoWidth, photoHeight);
+                                stripRecCtx.drawImage(capturedFrames[i], config.padding, yPos, stripPhotoWidth, stripPhotoHeight);
                             } else if (i === window.currentActiveSlot) {
-                                // Draw LIVE FEED strictly inside this specific tile
-                                recCtx.translate(config.padding, yPos);
-                                drawCombinedFeed(recCtx, photoWidth, photoHeight, filterSelect.value);
+                                stripRecCtx.translate(config.padding, yPos);
+                                drawCombinedFeed(stripRecCtx, stripPhotoWidth, stripPhotoHeight, filterSelect.value);
                             } else {
-                                // Draw gray placeholder for future slots
-                                recCtx.fillStyle = stripDesignSelect.value === 'dark' ? '#1f2937' : '#e5e7eb';
-                                recCtx.fillRect(config.padding, yPos, photoWidth, photoHeight);
+                                stripRecCtx.fillStyle = stripDesignSelect.value === 'dark' ? '#1f2937' : '#e5e7eb';
+                                stripRecCtx.fillRect(config.padding, yPos, stripPhotoWidth, stripPhotoHeight);
                             }
-                            recCtx.restore();
+                            stripRecCtx.restore();
                         }
-                        
-                        // Draw Flash Overlay over the entire video canvas
                         if (window.flashOpacity > 0) {
-                            recCtx.fillStyle = `rgba(255, 255, 255, ${window.flashOpacity})`;
-                            recCtx.fillRect(0, 0, config.stripWidth, totalHeight);
-                            window.flashOpacity = Math.max(0, window.flashOpacity - 0.1); // Fade out
+                            stripRecCtx.fillStyle = `rgba(255, 255, 255, ${window.flashOpacity})`;
+                            stripRecCtx.fillRect(0, 0, config.stripWidth, stripTotalHeight);
                         }
+                        stripRecCtx.restore();
 
-                        recCtx.restore(); // Restore scale
+                        // DRAW GRID
+                        gridRecCtx.save();
+                        gridRecCtx.scale(scale, scale); 
+                        gridRecCtx.drawImage(gridBgCanvas, 0, 0);
+                        for (let i = 0; i < config.totalPhotos; i++) {
+                            const col = i % gridCols;
+                            const row = Math.floor(i / gridCols);
+                            const xPos = config.padding + (col * (gridPhotoWidth + config.padding));
+                            const yPos = config.padding + (row * (gridPhotoHeight + config.padding));
+                            gridRecCtx.save();
+                            gridRecCtx.shadowColor = 'rgba(0, 0, 0, 0.2)'; gridRecCtx.shadowBlur = 10; gridRecCtx.shadowOffsetY = 4;
+                            if (i < capturedFrames.length) {
+                                gridRecCtx.drawImage(capturedFrames[i], xPos, yPos, gridPhotoWidth, gridPhotoHeight);
+                            } else if (i === window.currentActiveSlot) {
+                                gridRecCtx.translate(xPos, yPos);
+                                drawCombinedFeed(gridRecCtx, gridPhotoWidth, gridPhotoHeight, filterSelect.value);
+                            } else {
+                                gridRecCtx.fillStyle = stripDesignSelect.value === 'dark' ? '#1f2937' : '#e5e7eb';
+                                gridRecCtx.fillRect(xPos, yPos, gridPhotoWidth, gridPhotoHeight);
+                            }
+                            gridRecCtx.restore();
+                        }
+                        if (window.flashOpacity > 0) {
+                            gridRecCtx.fillStyle = `rgba(255, 255, 255, ${window.flashOpacity})`;
+                            gridRecCtx.fillRect(0, 0, config.stripWidth, gridTotalHeight);
+                        }
+                        gridRecCtx.restore();
+
+                        window.flashOpacity = Math.max(0, window.flashOpacity - 0.1); // Fade out
                         requestAnimationFrame(drawRecordFrame);
                     }
                     
                     drawRecordFrame();
-                    mediaRecorder.start(100);
+                    stripMediaRecorder.start(100);
+                    gridMediaRecorder.start(100);
                 } catch (err) {
                     console.warn("Behind The Scenes video recording disabled.", err);
                     isVideoRecording = false; 
@@ -826,9 +868,9 @@
                 window.currentActiveSlot = -1; 
                 await delay(2000);
 
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                if (stripMediaRecorder && stripMediaRecorder.state !== 'inactive') {
                     isVideoRecording = false;
-                    try { mediaRecorder.stop(); } catch (e) { }
+                    try { stripMediaRecorder.stop(); gridMediaRecorder.stop(); } catch (e) { }
                 }
 
                 renderStrip();
