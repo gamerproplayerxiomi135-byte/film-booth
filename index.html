@@ -55,12 +55,10 @@
         window.getGridLayout = function(count, forceStrip = false) {
             if (count <= 1) return { cols: 1, rows: 1 };
             
-            // If we are forcing a strip (for video) or it's an odd number
             if (forceStrip || count % 2 !== 0) {
                 return { cols: count, rows: 1 }; 
             }
 
-            // For even numbers (and polaroid mode), use grid
             for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
                 if (count % rows === 0) return { cols: count / rows, rows: rows };
             }
@@ -263,8 +261,7 @@
             const count = Object.keys(window.videoElements).length;
             const grid = document.getElementById('video-grid');
             if (!window.getGridLayout) return;
-            const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
-            const layout = window.getGridLayout(count, !isPolaroid); // Force strip if not polaroid
+            const layout = window.getGridLayout(count, true); // Force strip layout for the main camera view
             grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
             grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
@@ -538,6 +535,7 @@
             return vids;
         }
 
+        // Standard combined feed for photo capture (and grid video)
         function drawCombinedFeed(ctx, width, height, filterValue) {
             ctx.save();
             ctx.translate(width, 0); ctx.scale(-1, 1); ctx.filter = filterValue || 'none';
@@ -726,14 +724,11 @@
                 const stripRecCtx = stripRecCanvas.getContext('2d');
                 const stripBgCanvas = prepareStripBackground(config.stripWidth, stripTotalHeight);
 
-                // 2. GRID VIDEO CANVAS MATH
-                const gridLayout = window.getGridLayout(config.totalPhotos);
-                const gridCols = gridLayout.cols;
-                const gridRows = gridLayout.rows;
-                const gridAvailableWidth = config.stripWidth - (config.padding * 2) - ((gridCols - 1) * config.padding);
-                const gridPhotoWidth = gridAvailableWidth / gridCols;
-                const gridPhotoHeight = gridPhotoWidth / frameAspect;
-                const gridTotalHeight = config.padding + (gridRows * gridPhotoHeight) + ((gridRows - 1) * config.padding) + config.bottomPadding;
+                // 2. GRID VIDEO CANVAS MATH (Continuous Polarid View)
+                // We create a canvas that only holds 1 single large video feed wrapped in the frame
+                const gridAvailableWidth = config.stripWidth - (config.padding * 2);
+                const gridPhotoHeight = gridAvailableWidth / frameAspect;
+                const gridTotalHeight = config.padding + gridPhotoHeight + config.bottomPadding;
 
                 const gridRecCanvas = document.createElement('canvas');
                 gridRecCanvas.width = config.stripWidth * scale;
@@ -757,7 +752,6 @@
                             if (stripChunks.length === 0) return;
                             let ext = (stripMediaRecorder.mimeType || options.mimeType || 'video/webm').includes('mp4') ? 'mp4' : 'webm';
                             const url = URL.createObjectURL(new Blob(stripChunks, { type: stripMediaRecorder.mimeType }));
-                            btsPreview.src = url; btsPreview.classList.remove('hidden'); // Show strip video in preview
                             downloadVideoStripBtn.onclick = () => {
                                 const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
                                 a.download = `photobooth-strip-video-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
@@ -766,7 +760,7 @@
                         } catch(vidErr) {}
                     };
 
-                    // INITIALIZE GRID RECORDER
+                    // INITIALIZE GRID (POLAROID) RECORDER
                     gridMediaRecorder = new MediaRecorder(gridRecCanvas.captureStream(30), options);
                     const gridChunks = [];
                     gridMediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) gridChunks.push(e.data); };
@@ -775,6 +769,10 @@
                             if (gridChunks.length === 0) return;
                             let ext = (gridMediaRecorder.mimeType || options.mimeType || 'video/webm').includes('mp4') ? 'mp4' : 'webm';
                             const url = URL.createObjectURL(new Blob(gridChunks, { type: gridMediaRecorder.mimeType }));
+                            
+                            // SHOW GRID VIDEO IN PREVIEW BY DEFAULT
+                            btsPreview.src = url; btsPreview.classList.remove('hidden');
+                            
                             downloadVideoGridBtn.onclick = () => {
                                 const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
                                 a.download = `photobooth-grid-video-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
@@ -790,7 +788,7 @@
                     function drawRecordFrame() {
                         if (!isVideoRecording) return;
                         
-                        // DRAW STRIP
+                        // DRAW STRIP VIDEO (One-by-one slots moving down)
                         stripRecCtx.save();
                         stripRecCtx.scale(scale, scale); 
                         stripRecCtx.drawImage(stripBgCanvas, 0, 0);
@@ -815,28 +813,17 @@
                         }
                         stripRecCtx.restore();
 
-                        // DRAW GRID
+                        // DRAW GRID/POLAROID VIDEO (Single continuous view)
                         gridRecCtx.save();
                         gridRecCtx.scale(scale, scale); 
                         gridRecCtx.drawImage(gridBgCanvas, 0, 0);
-                        for (let i = 0; i < config.totalPhotos; i++) {
-                            const col = i % gridCols;
-                            const row = Math.floor(i / gridCols);
-                            const xPos = config.padding + (col * (gridPhotoWidth + config.padding));
-                            const yPos = config.padding + (row * (gridPhotoHeight + config.padding));
-                            gridRecCtx.save();
-                            gridRecCtx.shadowColor = 'rgba(0, 0, 0, 0.2)'; gridRecCtx.shadowBlur = 10; gridRecCtx.shadowOffsetY = 4;
-                            if (i < capturedFrames.length) {
-                                gridRecCtx.drawImage(capturedFrames[i], xPos, yPos, gridPhotoWidth, gridPhotoHeight);
-                            } else if (i === window.currentActiveSlot) {
-                                gridRecCtx.translate(xPos, yPos);
-                                drawCombinedFeed(gridRecCtx, gridPhotoWidth, gridPhotoHeight, filterSelect.value);
-                            } else {
-                                gridRecCtx.fillStyle = stripDesignSelect.value === 'dark' ? '#1f2937' : '#e5e7eb';
-                                gridRecCtx.fillRect(xPos, yPos, gridPhotoWidth, gridPhotoHeight);
-                            }
-                            gridRecCtx.restore();
-                        }
+                        
+                        gridRecCtx.save();
+                        gridRecCtx.shadowColor = 'rgba(0, 0, 0, 0.2)'; gridRecCtx.shadowBlur = 10; gridRecCtx.shadowOffsetY = 4;
+                        gridRecCtx.translate(config.padding, config.padding);
+                        drawCombinedFeed(gridRecCtx, gridAvailableWidth, gridPhotoHeight, filterSelect.value);
+                        gridRecCtx.restore();
+                        
                         if (window.flashOpacity > 0) {
                             gridRecCtx.fillStyle = `rgba(255, 255, 255, ${window.flashOpacity})`;
                             gridRecCtx.fillRect(0, 0, config.stripWidth, gridTotalHeight);
