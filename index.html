@@ -52,9 +52,15 @@
             });
         }, 2000);
 
-        window.getGridLayout = function(count) {
+        window.getGridLayout = function(count, forceStrip = false) {
             if (count <= 1) return { cols: 1, rows: 1 };
-            if (count % 2 !== 0) return { cols: count, rows: 1 };
+            
+            // If we are forcing a strip (for video) or it's an odd number
+            if (forceStrip || count % 2 !== 0) {
+                return { cols: count, rows: 1 }; 
+            }
+
+            // For even numbers (and polaroid mode), use grid
             for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
                 if (count % rows === 0) return { cols: count / rows, rows: rows };
             }
@@ -257,7 +263,8 @@
             const count = Object.keys(window.videoElements).length;
             const grid = document.getElementById('video-grid');
             if (!window.getGridLayout) return;
-            const layout = window.getGridLayout(count);
+            const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
+            const layout = window.getGridLayout(count, !isPolaroid); // Force strip if not polaroid
             grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
             grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
@@ -380,7 +387,7 @@
                     <div class="flex flex-col gap-2">
                         <label for="strip-design-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Design</label>
                         <select id="strip-design-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
-                            <option value="white">Classic White</option> <option value="dark">Midnight Noir</option> <option value="coffee">Coffee Stains</option> <option value="flowers">Field of Flowers</option> <option value="grid">Retro Grid Paper</option>
+                            <option value="white">Classic White</option> <option value="dark">Midnight Noir</option> <option value="polaroid">Polaroid Grid</option> <option value="coffee">Coffee Stains</option> <option value="flowers">Field of Flowers</option> <option value="grid">Retro Grid Paper</option>
                         </select>
                     </div>
                     <div class="flex flex-col gap-2">
@@ -449,7 +456,8 @@
         const livePreview = document.getElementById('live-preview');
         
         window.isCapturing = false;
-        window.currentActiveSlot = -1; // Controls the "Life Four Cuts" video style rendering
+        window.currentActiveSlot = -1; // Controls the video style rendering
+        window.flashOpacity = 0; // Controls video flash effect
 
         if (retryCameraBtn) {
             retryCameraBtn.addEventListener('click', () => {
@@ -463,7 +471,7 @@
             if (settings.photoCount && photoCountSelect.value !== settings.photoCount) { photoCountSelect.value = settings.photoCount; changed = true; }
             if (settings.countdown && countdownSelect.value !== settings.countdown) { countdownSelect.value = settings.countdown; timerHelperText.innerText = `Provides a ${settings.countdown}-second timer between each shot.`; changed = true; }
             if (settings.filter && filterSelect.value !== settings.filter) { filterSelect.value = settings.filter; video.style.filter = settings.filter; changed = true; }
-            if (settings.design && stripDesignSelect.value !== settings.design) { stripDesignSelect.value = settings.design; changed = true; }
+            if (settings.design && stripDesignSelect.value !== settings.design) { stripDesignSelect.value = settings.design; changed = true; updateGridCSS(); }
             if (settings.font && fontSelect.value !== settings.font) { fontSelect.value = settings.font; changed = true; }
 
             if (!changed) return;
@@ -529,7 +537,8 @@
             ctx.translate(width, 0); ctx.scale(-1, 1); ctx.filter = filterValue || 'none';
             const activeVids = getActiveVideos();
             const count = Math.max(1, activeVids.length); 
-            const layout = window.getGridLayout ? window.getGridLayout(count) : { cols: 1, rows: 1 };
+            const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
+            const layout = window.getGridLayout ? window.getGridLayout(count, !isPolaroid) : { cols: 1, rows: 1 };
             const cellW = width / layout.cols; const cellH = height / layout.rows;
 
             activeVids.forEach((vidElem, index) => {
@@ -557,7 +566,7 @@
             
             bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
 
-            if (design === 'grid') {
+            if (design === 'grid' || design === 'polaroid') {
                 bgCtx.strokeStyle = '#bae6fd'; bgCtx.lineWidth = 2;
                 for(let x=0; x<bgCanvas.width; x+=40) { bgCtx.beginPath(); bgCtx.moveTo(x,0); bgCtx.lineTo(x,bgCanvas.height); bgCtx.stroke(); }
                 for(let y=0; y<bgCanvas.height; y+=40) { bgCtx.beginPath(); bgCtx.moveTo(0,y); bgCtx.lineTo(bgCanvas.width,y); bgCtx.stroke(); }
@@ -621,6 +630,7 @@
 
         function flashScreen() {
             flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active');
+            window.flashOpacity = 1.0; // Trigger video flash effect
         }
 
         async function runCountdown() {
@@ -633,19 +643,43 @@
             const totalPhotos = capturedFrames.length;
             if (totalPhotos === 0) return;
 
+            const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
+            const layout = window.getGridLayout ? window.getGridLayout(totalPhotos, !isPolaroid) : { cols: 1, rows: totalPhotos };
+            
             const frameAspect = config.videoWidth / config.videoHeight;
-            const photoWidth = config.stripWidth - (config.padding * 2);
-            const photoHeight = photoWidth / frameAspect;
-            const totalHeight = config.padding + (totalPhotos * photoHeight) + ((totalPhotos - 1) * config.padding) + config.bottomPadding;
+            
+            // Calculate width based on columns needed
+            const columns = layout.cols;
+            const rows = layout.rows;
+            
+            let photoWidth, photoHeight;
+            
+            if (isPolaroid) {
+                // In polaroid grid mode, calculate cell width based on available space
+                const totalAvailableWidth = config.stripWidth - (config.padding * 2) - ((columns - 1) * config.padding);
+                photoWidth = totalAvailableWidth / columns;
+                photoHeight = photoWidth / frameAspect;
+            } else {
+                // Normal strip mode
+                photoWidth = config.stripWidth - (config.padding * 2);
+                photoHeight = photoWidth / frameAspect;
+            }
+
+            const totalHeight = config.padding + (rows * photoHeight) + ((rows - 1) * config.padding) + config.bottomPadding;
 
             stripCanvas.width = config.stripWidth; stripCanvas.height = totalHeight;
             const bgCanvas = prepareStripBackground(config.stripWidth, totalHeight);
             stripCtx.drawImage(bgCanvas, 0, 0);
 
             capturedFrames.forEach((frame, index) => {
-                const yPos = config.padding + (index * (photoHeight + config.padding));
+                const col = index % columns;
+                const row = Math.floor(index / columns);
+                
+                const xPos = config.padding + (col * (photoWidth + config.padding));
+                const yPos = config.padding + (row * (photoHeight + config.padding));
+                
                 stripCtx.shadowColor = 'rgba(0, 0, 0, 0.2)'; stripCtx.shadowBlur = 10; stripCtx.shadowOffsetX = 0; stripCtx.shadowOffsetY = 4;
-                stripCtx.drawImage(frame, config.padding, yPos, photoWidth, photoHeight);
+                stripCtx.drawImage(frame, xPos, yPos, photoWidth, photoHeight);
                 stripCtx.shadowColor = 'transparent'; stripCtx.shadowBlur = 0;
             });
 
@@ -680,7 +714,7 @@
                 let mediaRecorder = null;
                 let isVideoRecording = false;
 
-                // --- NEW "LIFE FOUR CUTS" VIDEO GENERATION ENGINE ---
+                // --- VIDEO GENERATION ENGINE (Always a vertical strip) ---
                 const frameAspect = config.videoWidth / config.videoHeight;
                 const photoWidth = config.stripWidth - (config.padding * 2);
                 const photoHeight = photoWidth / frameAspect;
@@ -726,6 +760,7 @@
                     
                     isVideoRecording = true;
                     window.currentActiveSlot = 0;
+                    window.flashOpacity = 0;
                     
                     function drawRecordFrame() {
                         if (!isVideoRecording) return;
@@ -748,14 +783,25 @@
                             if (i < capturedFrames.length) {
                                 // Draw static, already-captured photo
                                 recCtx.drawImage(capturedFrames[i], config.padding, yPos, photoWidth, photoHeight);
-                            } else {
-                                // Draw LIVE FEED for the current AND all future slots simultaneously
+                            } else if (i === window.currentActiveSlot) {
+                                // Draw LIVE FEED strictly inside this specific tile
                                 recCtx.translate(config.padding, yPos);
                                 drawCombinedFeed(recCtx, photoWidth, photoHeight, filterSelect.value);
+                            } else {
+                                // Draw gray placeholder for future slots
+                                recCtx.fillStyle = stripDesignSelect.value === 'dark' ? '#1f2937' : '#e5e7eb';
+                                recCtx.fillRect(config.padding, yPos, photoWidth, photoHeight);
                             }
                             recCtx.restore();
                         }
                         
+                        // Draw Flash Overlay over the entire video canvas
+                        if (window.flashOpacity > 0) {
+                            recCtx.fillStyle = `rgba(255, 255, 255, ${window.flashOpacity})`;
+                            recCtx.fillRect(0, 0, config.stripWidth, totalHeight);
+                            window.flashOpacity = Math.max(0, window.flashOpacity - 0.1); // Fade out
+                        }
+
                         recCtx.restore(); // Restore scale
                         requestAnimationFrame(drawRecordFrame);
                     }
@@ -816,6 +862,7 @@
         stripDesignSelect.addEventListener('change', () => {
             if (!isCapturing && capturedFrames.length > 0) renderStrip();
             if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
+            updateGridCSS();
         });
         
         fontSelect.addEventListener('change', () => {
