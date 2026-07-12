@@ -13,10 +13,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        // IMPORT arrayRemove added to handle users leaving the mesh network cleanly
         import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Your Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyCdACV1qmBuBR0XE8wonlToMcyhpFzQSN4",
             authDomain: "photoboth-68eed.firebaseapp.com",
@@ -30,88 +28,52 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        
         const appId = 'ldr-booth-external';
 
         let user = null;
         let unsubscribe = null;
         let currentRoom = null;
         
-        // --- WebRTC (PeerJS) Variables ---
         const peer = new Peer(); 
         let isPeerReady = false;
         let localStream = null;
         const activeConnections = {};
-        
         window.videoElements = {}; 
         
-        // Mobile Fix: Strict Camera Lock Promise
         let cameraReadyResolver;
-        window.cameraReadyPromise = new Promise((resolve) => {
-            cameraReadyResolver = resolve;
-        });
+        window.cameraReadyPromise = new Promise((resolve) => { cameraReadyResolver = resolve; });
 
-        // Mobile Fix: Aggressively ensure videos play on strict mobile browsers
         setInterval(() => {
             Object.values(window.videoElements).forEach(vid => {
                 if (vid && vid.paused && vid.srcObject) {
                     const playPromise = vid.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(() => {}); // silently catch auto-play blocks
-                    }
+                    if (playPromise !== undefined) playPromise.catch(() => {}); 
                 }
             });
         }, 2000);
 
-        // --- LAYOUT HELPER ---
         window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
-
-            // ODD: Neapolitan layout (side-by-side vertical strips)
-            if (count % 2 !== 0) {
-                return { cols: count, rows: 1 };
-            }
-
-            // EVEN: Tiled format (balanced grid, e.g., 4 -> 2x2, 6 -> 3x2)
+            if (count % 2 !== 0) return { cols: count, rows: 1 };
             for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
-                if (count % rows === 0) {
-                    const cols = count / rows;
-                    return { cols: cols, rows: rows };
-                }
+                if (count % rows === 0) return { cols: count / rows, rows: rows };
             }
-            
-            return { cols: count, rows: 1 }; // Safety fallback
+            return { cols: count, rows: 1 }; 
         };
 
-        peer.on('open', (id) => {
-            isPeerReady = true;
-            console.log("PeerJS Initialized with ID:", id);
-        });
+        peer.on('open', (id) => { isPeerReady = true; });
 
         peer.on('call', async (call) => {
-            console.log("Incoming call from:", call.peer);
-            
-            // STRICT LOCK: Do not answer until local camera is hot and ready.
             await window.cameraReadyPromise; 
-            
             activeConnections[call.peer] = call;
-            // Now safe to answer because localStream is guaranteed to exist
             call.answer(localStream); 
-            
-            call.on('stream', (remoteStream) => {
-                console.log("Received remote stream from:", call.peer);
-                addRemoteVideo(call.peer, remoteStream);
-            });
-            
+            call.on('stream', (remoteStream) => { addRemoteVideo(call.peer, remoteStream); });
             call.on('close', () => removeRemoteVideo(call.peer));
             call.on('error', (err) => console.error("Call error:", err));
         });
 
         signInAnonymously(auth).then(() => {
-            onAuthStateChanged(auth, (u) => { 
-                user = u; 
-                console.log("User signed in:", user.uid);
-            });
+            onAuthStateChanged(auth, (u) => { user = u; });
         }).catch((error) => console.error("Auth Error:", error));
 
         function getCurrentSettingsFromDOM() {
@@ -126,243 +88,136 @@
 
         window.syncSettingsToRoom = async function() {
             if (!currentRoom) return;
-            try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), {
-                    settings: getCurrentSettingsFromDOM()
-                });
-            } catch (e) {
-                console.error("Failed to sync settings:", e);
-            }
+            try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { settings: getCurrentSettingsFromDOM() }); } catch (e) {}
         };
 
         function initUI() {
             window.videoElements['local'] = document.getElementById('camera-feed');
-
             const roomSetup = document.getElementById('room-setup');
             const roomActive = document.getElementById('room-active');
             const displayCode = document.getElementById('display-room-code');
             const roomStatus = document.getElementById('room-status');
             const statusDot = document.getElementById('status-dot');
-            
             const generateBtn = document.getElementById('generate-btn');
             const joinBtn = document.getElementById('join-btn');
             const copyBtn = document.getElementById('copy-code-btn');
             const leaveBtn = document.getElementById('leave-room-btn');
         
             if(generateBtn) generateBtn.addEventListener('click', async () => {
-                if (!isPeerReady) return alert("Still connecting to network. Please try again in a second.");
+                if (!isPeerReady) return alert("Still connecting to network...");
                 generateBtn.innerText = "Generating...";
                 generateBtn.disabled = true;
-            
                 const code = Math.random().toString(36).substring(2, 7).toUpperCase();
                 currentRoom = code;
-            
-                const timeout = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error("Database request timed out. Check your connection or VPN.")), 5000)
-                );
-            
+                const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
                 try {
                     await Promise.race([
                         setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
-                            status: 'waiting', 
-                            trigger: 'idle', 
-                            participants: [peer.id], 
-                            settings: getCurrentSettingsFromDOM(), 
-                            timestamp: serverTimestamp() 
-                        }),
-                        timeout
+                            status: 'waiting', trigger: 'idle', participants: [peer.id], settings: getCurrentSettingsFromDOM(), timestamp: serverTimestamp() 
+                        }), timeout
                     ]);
-            
-                    console.log("Room Created Successfully!");
                     roomSetup.classList.add('hidden');
-                    roomActive.classList.remove('hidden');
-                    roomActive.classList.add('flex');
-                    displayCode.innerText = code; 
-                    listenToRoom(code);
-                } catch(e) {
-                    console.error("DEBUG ERROR:", e);
-                    alert("Failed: " + e.message);
-                } finally {
-                    generateBtn.innerText = "Generate Room Code";
-                    generateBtn.disabled = false;
-                }
+                    roomActive.classList.remove('hidden'); roomActive.classList.add('flex');
+                    displayCode.innerText = code; listenToRoom(code);
+                } catch(e) { alert("Failed: " + e.message); } 
+                finally { generateBtn.innerText = "Generate Room Code"; generateBtn.disabled = false; }
             });
         
             if(joinBtn) joinBtn.addEventListener('click', async () => {
-                if (!user) return alert("Still connecting to database...");
-                if (!isPeerReady) return alert("Still connecting to network. Please try again in a second.");
-                
+                if (!user) return alert("Connecting...");
+                if (!isPeerReady) return alert("Connecting...");
                 const input = document.getElementById('join-code-input').value.trim().toUpperCase();
-                if (!input) return alert("Please enter a code");
-        
+                if (!input) return alert("Enter a code");
                 const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', input);
-                
                 try {
                     const roomDoc = await getDoc(roomRef);
                     if (roomDoc.exists()) {
                         currentRoom = input;
                         const data = roomDoc.data();
-
-                        if (data.settings && typeof window.applyRemoteSettings === 'function') {
-                            window.applyRemoteSettings(data.settings);
-                        }
-                        
-                        await updateDoc(roomRef, { 
-                            status: 'ready',
-                            participants: arrayUnion(peer.id)
-                        });
-        
-                        roomSetup.classList.add('hidden');
-                        roomActive.classList.remove('hidden');
-                        roomActive.classList.add('flex');
-                        displayCode.innerText = input;
-                        
-                        listenToRoom(input);
-                    } else {
-                        alert("Room not found. Check the code and try again.");
-                    }
-                } catch(e) {
-                    console.error(e);
-                    alert("Error joining room.");
-                }
+                        if (data.settings && typeof window.applyRemoteSettings === 'function') window.applyRemoteSettings(data.settings);
+                        await updateDoc(roomRef, { status: 'ready', participants: arrayUnion(peer.id) });
+                        roomSetup.classList.add('hidden'); roomActive.classList.remove('hidden'); roomActive.classList.add('flex');
+                        displayCode.innerText = input; listenToRoom(input);
+                    } else { alert("Room not found."); }
+                } catch(e) { alert("Error joining."); }
             });
         
             if(copyBtn) copyBtn.addEventListener('click', () => {
                 navigator.clipboard.writeText(currentRoom).then(() => {
-                    copyBtn.innerText = "✅";
-                    setTimeout(() => copyBtn.innerText = "📋", 2000);
+                    copyBtn.innerText = "✅"; setTimeout(() => copyBtn.innerText = "📋", 2000);
                 });
             });
         
             if(leaveBtn) leaveBtn.addEventListener('click', () => {
                 if (unsubscribe) unsubscribe();
-                
                 if (currentRoom && peer.id) {
-                    updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), {
-                        participants: arrayRemove(peer.id)
-                    }).catch(e => console.error(e));
+                    updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { participants: arrayRemove(peer.id) }).catch(e=>{});
                 }
-                
                 currentRoom = null;
-                
                 Object.values(activeConnections).forEach(call => call.close());
-                
-                Object.keys(window.videoElements).forEach(peerId => {
-                    if (peerId !== 'local') {
-                        removeRemoteVideo(peerId);
-                    }
-                });
-                
-                roomSetup.classList.remove('hidden');
-                roomActive.classList.add('hidden');
-                roomActive.classList.remove('flex');
+                Object.keys(window.videoElements).forEach(peerId => { if (peerId !== 'local') removeRemoteVideo(peerId); });
+                roomSetup.classList.remove('hidden'); roomActive.classList.add('hidden'); roomActive.classList.remove('flex');
                 document.getElementById('join-code-input').value = '';
-                
-                roomStatus.innerText = "Waiting for partner...";
-                roomStatus.className = "text-sm font-semibold text-yellow-500";
+                roomStatus.innerText = "Waiting for partner..."; roomStatus.className = "text-sm font-semibold text-yellow-500";
                 statusDot.className = "w-3 h-3 rounded-full bg-yellow-500 animate-pulse";
             });
         }
 
         window.addEventListener('beforeunload', () => {
             if (currentRoom && peer.id && user) {
-                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), {
-                    participants: arrayRemove(peer.id)
-                });
+                updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { participants: arrayRemove(peer.id) });
             }
         });
 
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initUI);
-        } else {
-            initUI();
-        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initUI);
+        else initUI();
 
         window.triggerPartner = async () => {
-            if (!currentRoom) {
-                if(typeof window.startSequence === 'function') window.startSequence();
-                return;
-            }
+            if (!currentRoom) { if(typeof window.startSequence === 'function') window.startSequence(); return; }
             if (!user) return;
-
-            console.log("Triggering partner sequence for room:", currentRoom);
-            
             try {
-                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { 
-                    trigger: 'start',
-                    timestamp: serverTimestamp() 
-                });
-                
-                if(typeof window.startSequence === 'function') {
-                     window.startSequence();
-                }
-            } catch (error) {
-                 console.error("Error writing to database:", error);
-                 alert("Could not connect to the synced room. Check your internet connection.");
-            }
+                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { trigger: 'start', timestamp: serverTimestamp() });
+                 if(typeof window.startSequence === 'function') window.startSequence();
+            } catch (error) { alert("Connection error."); }
         };
         
         function listenToRoom(code) {
             if (unsubscribe) unsubscribe(); 
-            
             unsubscribe = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), (docSnapshot) => {
                 const data = docSnapshot.data();
                 if (!data) return;
-        
                 if (data.participants) {
                     Object.keys(activeConnections).forEach(existingId => {
                         if (!data.participants.includes(existingId)) {
-                            console.log("Partner left the room:", existingId);
                             if (activeConnections[existingId]) activeConnections[existingId].close();
                             removeRemoteVideo(existingId);
                         }
                     });
-
                     const count = data.participants.length;
                     if (count > 1) {
                         const roomStatus = document.getElementById('room-status');
                         const statusDot = document.getElementById('status-dot');
-                        if(roomStatus) roomStatus.innerText = `${count} People Connected!`;
-                        if(roomStatus) roomStatus.className = "text-sm font-semibold text-emerald-400";
+                        if(roomStatus) { roomStatus.innerText = `${count} People Connected!`; roomStatus.className = "text-sm font-semibold text-emerald-400"; }
                         if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
                     }
-
                     data.participants.forEach(pId => {
                         if (pId !== peer.id && !activeConnections[pId]) {
                             if (peer.id > pId) {
-                                console.log("Initiating outbound call to:", pId);
-                                
-                                // STRICT LOCK: Do not call until local camera is hot.
                                 window.cameraReadyPromise.then(() => {
                                     const call = peer.call(pId, localStream);
                                     activeConnections[pId] = call;
-                                    
-                                    call.on('stream', (remoteStream) => {
-                                        console.log("Received remote stream from outbound call:", pId);
-                                        addRemoteVideo(pId, remoteStream);
-                                    });
-                                    
+                                    call.on('stream', (remoteStream) => { addRemoteVideo(pId, remoteStream); });
                                     call.on('close', () => removeRemoteVideo(pId));
-                                    call.on('error', (err) => console.error("Peer call error:", err));
                                 });
-                            } else {
-                                console.log("Waiting for incoming call from:", pId);
                             }
                         }
                     });
                 }
-
-                if (data.settings && typeof window.applyRemoteSettings === 'function') {
-                    window.applyRemoteSettings(data.settings);
-                }
-        
+                if (data.settings && typeof window.applyRemoteSettings === 'function') window.applyRemoteSettings(data.settings);
                 if (data.trigger === 'start') {
                     if (typeof window.isCapturing !== 'undefined' && window.isCapturing === false) {
                         updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { trigger: 'idle' }).catch(e=>{});
-                        
-                        if(typeof window.startSequence === 'function') {
-                            window.startSequence();
-                        }
+                        if(typeof window.startSequence === 'function') window.startSequence();
                     }
                 }
             });
@@ -370,119 +225,60 @@
         
         function addRemoteVideo(peerId, stream) {
             if (window.videoElements[peerId]) return; 
-            
             const grid = document.getElementById('video-grid');
-            
             const wrapper = document.createElement('div');
             wrapper.className = 'relative w-full h-full bg-gray-800 flex items-center justify-center flex-shrink-0 min-h-0 min-w-0';
             wrapper.id = `wrapper-${peerId}`;
 
             const vid = document.createElement('video');
             vid.className = 'w-full h-full object-cover transition-all duration-300';
-            
-            // STRICT MOBILE FIX: Use setAttribute for iOS compatibility
-            vid.setAttribute('autoplay', 'autoplay');
-            vid.setAttribute('playsinline', 'playsinline');
-            vid.setAttribute('muted', 'muted');
-            vid.muted = true; 
-            vid.style.transform = 'scaleX(-1)'; 
+            vid.setAttribute('autoplay', 'autoplay'); vid.setAttribute('playsinline', 'playsinline'); vid.setAttribute('muted', 'muted');
+            vid.muted = true; vid.style.transform = 'scaleX(-1)'; 
 
             const label = document.createElement('div');
             label.className = 'absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10';
             label.innerText = `PARTNER`;
 
-            // STRICT MOBILE FIX: Append to DOM BEFORE assigning srcObject
-            wrapper.appendChild(vid);
-            wrapper.appendChild(label);
-            grid.appendChild(wrapper);
+            wrapper.appendChild(vid); wrapper.appendChild(label); grid.appendChild(wrapper);
+            window.videoElements[peerId] = vid; updateGridCSS();
             
-            window.videoElements[peerId] = vid;
-            updateGridCSS();
-            
-            // Assign stream after it is in the DOM
             vid.srcObject = stream;
-            
-            // Force browser to load and play
-            try {
-                vid.load();
-                const playPromise = vid.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch(e => console.warn("Remote initial play failed, interval will retry.", e));
-                }
-            } catch (err) {
-                console.error("Video force-play error:", err);
-            }
+            try { vid.load(); const playPromise = vid.play(); if (playPromise !== undefined) playPromise.catch(e=>{}); } catch (err) {}
         }
 
         function removeRemoteVideo(peerId) {
             const wrapper = document.getElementById(`wrapper-${peerId}`);
             if (wrapper) wrapper.remove();
-            delete window.videoElements[peerId];
-            delete activeConnections[peerId];
+            delete window.videoElements[peerId]; delete activeConnections[peerId];
             updateGridCSS();
         }
 
         function updateGridCSS() {
             const count = Object.keys(window.videoElements).length;
             const grid = document.getElementById('video-grid');
-            
             if (!window.getGridLayout) return;
             const layout = window.getGridLayout(count);
-            
             grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
             grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
         
         window.setLocalStream = (stream) => {
             localStream = stream;
-            // RELEASE THE LOCK: Mobile camera is hot and ready to be broadcast.
-            if(cameraReadyResolver) {
-                cameraReadyResolver(stream);
-            }
+            if(cameraReadyResolver) cameraReadyResolver(stream);
         }
     </script>
 
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #121212;
-            color: #f3f4f6;
-        }
-        
-        .cursive-title {
-            font-family: 'Dancing Script', cursive;
-        }
-
-        .film-font {
-            font-family: 'Courier Prime', monospace;
-        }
-        
-        #camera-feed, #remote-feed {
-            transform: scaleX(-1);
-        }
-
-        @keyframes flash {
-            0% { opacity: 0; }
-            10% { opacity: 1; }
-            100% { opacity: 0; }
-        }
-        .flash-active {
-            animation: flash 0.5s ease-out;
-        }
-
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #1f2937;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #4b5563;
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #6b7280;
-        }
+        body { font-family: 'Inter', sans-serif; background-color: #121212; color: #f3f4f6; }
+        .cursive-title { font-family: 'Dancing Script', cursive; }
+        .film-font { font-family: 'Courier Prime', monospace; }
+        #camera-feed, #remote-feed { transform: scaleX(-1); }
+        @keyframes flash { 0% { opacity: 0; } 10% { opacity: 1; } 100% { opacity: 0; } }
+        .flash-active { animation: flash 0.5s ease-out; }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center py-10 px-4">
@@ -491,35 +287,23 @@
     <header class="text-center mb-10 w-full max-w-2xl mx-auto px-4">
         <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-4 text-white drop-shadow-md cursive-title">PhotoBoth</h1>
         <div class="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 shadow-lg">
-            <p class="text-gray-200 text-base md:text-lg font-medium mb-1">
-                A photo for both even if the distance is far.
-            </p>
-            <p class="text-gray-400 text-sm">
-                Bridge the gap and capture a shared photo strip from anywhere in the world.
-            </p>
+            <p class="text-gray-200 text-base md:text-lg font-medium mb-1">A photo for both even if the distance is far.</p>
+            <p class="text-gray-400 text-sm">Bridge the gap and capture a shared photo strip from anywhere in the world.</p>
         </div>
     </header>
 
-    <main class="w-full max-w-6xl flex flex-col md:flex-row gap-8 items-start justify-center">
+    <main class="w-full max-w-7xl flex flex-col md:flex-row gap-8 items-start justify-center">
         
-        <!-- Left Column -->
-        <div class="w-full md:w-1/2 lg:w-[800px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
+        <!-- Left Column (Enlarged) -->
+        <div class="w-full md:w-[60%] lg:w-[800px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
             
             <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-inner">
                 <h3 class="text-xs font-bold text-indigo-400 uppercase tracking-widest block mb-3 border-b border-gray-700 pb-2">Virtual Booth Sync</h3>
-                
                 <div id="room-setup" class="flex flex-col gap-4">
                     <button id="generate-btn" class="w-full py-2.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold rounded transition-colors shadow-sm flex justify-center items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-                        Generate a Room Code
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> Generate a Room Code
                     </button>
-                    
-                    <div class="flex items-center gap-2">
-                        <hr class="flex-grow border-gray-700">
-                        <span class="text-xs text-gray-500 uppercase font-semibold">OR</span>
-                        <hr class="flex-grow border-gray-700">
-                    </div>
-                    
+                    <div class="flex items-center gap-2"><hr class="flex-grow border-gray-700"><span class="text-xs text-gray-500 uppercase font-semibold">OR</span><hr class="flex-grow border-gray-700"></div>
                     <div class="flex gap-2">
                         <input type="text" id="join-code-input" placeholder="Enter Partner's Code" class="flex-grow p-2.5 bg-gray-900 rounded border border-gray-700 text-white focus:ring-2 focus:ring-indigo-500 uppercase text-center font-mono font-bold tracking-widest text-sm">
                         <button id="join-btn" class="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded transition-colors shadow-sm">Join</button>
@@ -542,20 +326,14 @@
 
             <div id="camera-wrapper" class="relative w-full bg-black rounded-lg overflow-hidden border-2 border-gray-700 shadow-inner aspect-[4/3] md:aspect-video transition-all duration-300">
                 <div id="video-grid" class="w-full h-full grid divide-x divide-y divide-gray-700">
-                    <!-- FIX: Added min-h-0 min-w-0 -->
                     <div class="relative w-full h-full bg-gray-900 flex-shrink-0 min-h-0 min-w-0">
                         <video id="camera-feed" class="w-full h-full object-cover transition-all duration-300" autoplay playsinline muted></video>
                         <div class="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10">YOU</div>
                     </div>
                 </div>
-                
-                <div id="countdown-overlay" class="absolute inset-0 flex items-center justify-center text-7xl font-bold text-white drop-shadow-md hidden z-10 bg-black/30">
-                        3
-                </div>
-
+                <div id="countdown-overlay" class="absolute inset-0 flex items-center justify-center text-7xl font-bold text-white drop-shadow-md hidden z-10 bg-black/30">3</div>
                 <div id="flash-overlay" class="absolute inset-0 bg-white opacity-0 pointer-events-none z-20"></div>
                 
-                <!-- Updated Error Message with Retry Button -->
                 <div id="camera-error" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-red-400 bg-gray-900 hidden z-30">
                     <p class="mb-4">Unable to access camera. Please check your permissions and refresh.</p>
                     <button id="retry-camera-btn" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white font-semibold rounded-md text-sm transition-colors">Retry Camera</button>
@@ -563,24 +341,17 @@
             </div>
 
             <div class="flex flex-col gap-4">
-                
                 <div class="grid grid-cols-2 gap-4">
                     <div class="flex flex-col gap-2">
                         <label for="photo-count-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Photos</label>
                         <select id="photo-count-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
-                            <option value="4">4 Photos</option>
-                            <option value="3">3 Photos</option>
-                            <option value="2">2 Photos</option>
-                            <option value="1">1 Photo</option>
+                            <option value="4">4 Photos</option> <option value="3">3 Photos</option> <option value="2">2 Photos</option> <option value="1">1 Photo</option>
                         </select>
                     </div>
                     <div class="flex flex-col gap-2">
                         <label for="countdown-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Timer</label>
                         <select id="countdown-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
-                            <option value="3">3 Seconds</option>
-                            <option value="5" selected>5 Seconds</option>
-                            <option value="10">10 Seconds</option>
-                            <option value="15">15 Seconds</option>
+                            <option value="3">3 Seconds</option> <option value="5" selected>5 Seconds</option> <option value="10">10 Seconds</option> <option value="15">15 Seconds</option>
                         </select>
                     </div>
                 </div>
@@ -588,9 +359,7 @@
                 <div class="flex flex-col gap-2">
                     <label for="filter-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Select Film Stock</label>
                     <select id="filter-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
-                        <optgroup label="Standard Digital">
-                            <option value="none">Digital (No Filter)</option>
-                        </optgroup>
+                        <optgroup label="Standard Digital"><option value="none">Digital (No Filter)</option></optgroup>
                         <optgroup label="Kodak Emulations">
                             <option value="sepia(30%) contrast(110%) saturate(140%) brightness(110%) hue-rotate(-5deg)">Kodak Gold 200</option>
                             <option value="sepia(10%) contrast(95%) saturate(120%) brightness(105%) hue-rotate(-5deg)">Kodak Portra 400</option>
@@ -611,33 +380,21 @@
                     <div class="flex flex-col gap-2">
                         <label for="strip-design-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Design</label>
                         <select id="strip-design-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-gray-750">
-                            <option value="white">Classic White</option>
-                            <option value="dark">Midnight Noir</option>
-                            <option value="coffee">Coffee Stains</option>
-                            <option value="flowers">Field of Flowers</option>
-                            <option value="grid">Retro Grid Paper</option>
+                            <option value="white">Classic White</option> <option value="dark">Midnight Noir</option> <option value="coffee">Coffee Stains</option> <option value="flowers">Field of Flowers</option> <option value="grid">Retro Grid Paper</option>
                         </select>
                     </div>
-                    
                     <div class="flex flex-col gap-2">
                         <label for="font-select" class="text-sm font-semibold text-gray-400 uppercase tracking-wider">Strip Font</label>
                         <select id="font-select" class="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer disabled:opacity-50 transition-colors hover:bg-gray-750">
-                            <option value="monospace">Courier (Classic)</option>
-                            <option value="typewriter">Special Elite (Typewriter)</option>
-                            <option value="cursive">Dancing Script (Playful)</option>
-                            <option value="romantic">Great Vibes (Romantic)</option>
-                            <option value="sans-serif">Inter (Modern)</option>
+                            <option value="monospace">Courier (Classic)</option> <option value="typewriter">Special Elite (Typewriter)</option> <option value="cursive">Dancing Script (Playful)</option> <option value="romantic">Great Vibes (Romantic)</option> <option value="sans-serif">Inter (Modern)</option>
                         </select>
                     </div>
                 </div>
 
                 <button id="start-btn" onclick="triggerPartner()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-lg transition-colors shadow-lg hover:shadow-indigo-500/25 flex items-center justify-center gap-2 mt-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
-                    Sync & Start Booth
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth
                 </button>
-                
                 <p id="timer-helper-text" class="text-xs text-center text-gray-500 mt-1">Provides a 5-second timer between each shot.</p>
-
                 <div id="live-preview-container" class="hidden mt-2">
                     <p class="text-xs text-center text-gray-500 uppercase tracking-wider mb-1">Just Captured</p>
                     <img id="live-preview" class="w-full rounded-lg border border-gray-700 shadow-md" alt="Most recently captured photo" />
@@ -646,32 +403,26 @@
         </div>
 
         <!-- Right Column -->
-        <div class="w-full md:w-1/2 lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
+        <div class="w-full md:w-[40%] lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
             <div class="w-full flex justify-between items-center mb-4 flex-wrap gap-2">
                 <h2 class="text-xl font-semibold text-white">Your Strip & BTS</h2>
                 <div class="flex gap-2">
                     <button id="download-video-btn" class="hidden px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-md text-sm transition-colors shadow-md flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-                        BTS Video
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> BTS Video
                     </button>
                     <button id="download-btn" class="hidden px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-sm transition-colors shadow-md flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                        Strip
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg> Strip
                     </button>
                 </div>
             </div>
 
             <div class="flex-1 w-full bg-gray-950 rounded-lg border border-gray-800 p-4 overflow-y-auto flex flex-col items-center gap-6 max-h-[80vh]">
-                
                 <canvas id="strip-canvas" class="hidden max-w-full h-auto shadow-2xl bg-white flex-shrink-0"></canvas>
-                
                 <video id="bts-preview" controls class="hidden max-w-full h-auto rounded-lg shadow-2xl border border-gray-700 bg-black flex-shrink-0"></video>
-                
                 <div id="strip-placeholder" class="h-full flex flex-col items-center justify-center text-gray-600">
                     <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="mb-4 opacity-50"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
                     <p>Your photos will appear here</p>
                 </div>
-
             </div>
         </div>
     </main>
@@ -686,7 +437,7 @@
         const countdownOverlay = document.getElementById('countdown-overlay');
         const flashOverlay = document.getElementById('flash-overlay');
         const cameraError = document.getElementById('camera-error');
-        const retryCameraBtn = document.getElementById('retry-camera-btn'); // New retry button
+        const retryCameraBtn = document.getElementById('retry-camera-btn'); 
         const stripCanvas = document.getElementById('strip-canvas');
         const btsPreview = document.getElementById('bts-preview');
         const stripPlaceholder = document.getElementById('strip-placeholder');
@@ -698,49 +449,27 @@
         const livePreview = document.getElementById('live-preview');
         
         window.isCapturing = false;
+        window.currentActiveSlot = -1; // Controls the "Life Four Cuts" video style rendering
 
-        // Added event listener to handle retrying the camera permission prompt
         if (retryCameraBtn) {
             retryCameraBtn.addEventListener('click', () => {
-                cameraError.classList.add('hidden');
-                initCamera();
+                cameraError.classList.add('hidden'); initCamera();
             });
         }
 
         window.applyRemoteSettings = function(settings) {
             if (!settings || window.isCapturing) return;
-
             let changed = false;
-
-            if (settings.photoCount && photoCountSelect.value !== settings.photoCount) {
-                photoCountSelect.value = settings.photoCount;
-                changed = true;
-            }
-            if (settings.countdown && countdownSelect.value !== settings.countdown) {
-                countdownSelect.value = settings.countdown;
-                timerHelperText.innerText = `Provides a ${settings.countdown}-second timer between each shot.`;
-                changed = true;
-            }
-            if (settings.filter && filterSelect.value !== settings.filter) {
-                filterSelect.value = settings.filter;
-                video.style.filter = settings.filter;
-                changed = true;
-            }
-            if (settings.design && stripDesignSelect.value !== settings.design) {
-                stripDesignSelect.value = settings.design;
-                changed = true;
-            }
-            if (settings.font && fontSelect.value !== settings.font) {
-                fontSelect.value = settings.font;
-                changed = true;
-            }
+            if (settings.photoCount && photoCountSelect.value !== settings.photoCount) { photoCountSelect.value = settings.photoCount; changed = true; }
+            if (settings.countdown && countdownSelect.value !== settings.countdown) { countdownSelect.value = settings.countdown; timerHelperText.innerText = `Provides a ${settings.countdown}-second timer between each shot.`; changed = true; }
+            if (settings.filter && filterSelect.value !== settings.filter) { filterSelect.value = settings.filter; video.style.filter = settings.filter; changed = true; }
+            if (settings.design && stripDesignSelect.value !== settings.design) { stripDesignSelect.value = settings.design; changed = true; }
+            if (settings.font && fontSelect.value !== settings.font) { fontSelect.value = settings.font; changed = true; }
 
             if (!changed) return;
-
             const count = photoCountSelect.value;
             const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
             startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth (${photoText})`;
-
             if (!window.isCapturing && capturedFrames.length > 0) renderStrip();
         };
 
@@ -758,28 +487,13 @@
         async function initCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                video.srcObject = stream;
-                video.muted = true;
-                video.playsInline = true;
-                
+                video.srcObject = stream; video.muted = true; video.playsInline = true;
                 await video.play().catch(e => console.warn("Local play failed", e));
-                
-                if(window.setLocalStream) {
-                    window.setLocalStream(stream);
-                }
-                
-                cameraError.classList.add('hidden');
-                startBtn.disabled = false;
-                startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                if(window.setLocalStream) window.setLocalStream(stream);
+                cameraError.classList.add('hidden'); startBtn.disabled = false; startBtn.classList.remove('opacity-50', 'cursor-not-allowed');
             } catch (err) {
-                console.error("Camera access denied or unavailable:", err);
-                cameraError.classList.remove('hidden');
-                startBtn.disabled = true;
-                startBtn.classList.add('opacity-50', 'cursor-not-allowed');
-                
-                if(cameraReadyResolver) {
-                    cameraReadyResolver();
-                }
+                cameraError.classList.remove('hidden'); startBtn.disabled = true; startBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                if(cameraReadyResolver) cameraReadyResolver();
             }
         }
 
@@ -787,281 +501,162 @@
 
         function drawCenterCrop(ctx, sourceVid, targetX, targetY, targetW, targetH) {
             if (!sourceVid || sourceVid.readyState < 2 || !sourceVid.videoWidth || !sourceVid.videoHeight) {
-                ctx.fillStyle = '#1f2937';
-                ctx.fillRect(targetX, targetY, targetW, targetH);
-                return;
+                ctx.fillStyle = '#1f2937'; ctx.fillRect(targetX, targetY, targetW, targetH); return;
             }
-            
             const sourceAspect = sourceVid.videoWidth / sourceVid.videoHeight;
             const targetAspect = targetW / targetH;
-            
             let sx, sy, sw, sh;
-            
             if (sourceAspect > targetAspect) {
-                sh = sourceVid.videoHeight;
-                sw = sh * targetAspect;
-                sx = (sourceVid.videoWidth - sw) / 2;
-                sy = 0;
+                sh = sourceVid.videoHeight; sw = sh * targetAspect; sx = (sourceVid.videoWidth - sw) / 2; sy = 0;
             } else {
-                sw = sourceVid.videoWidth;
-                sh = sw / targetAspect;
-                sx = 0;
-                sy = (sourceVid.videoHeight - sh) / 2;
+                sw = sourceVid.videoWidth; sh = sw / targetAspect; sx = 0; sy = (sourceVid.videoHeight - sh) / 2;
             }
-            
-            ctx.drawImage(
-                sourceVid, 
-                Math.floor(sx), Math.floor(sy), Math.floor(sw), Math.floor(sh), 
-                Math.floor(targetX), Math.floor(targetY), Math.floor(targetW), Math.floor(targetH)
-            );
+            ctx.drawImage(sourceVid, Math.floor(sx), Math.floor(sy), Math.floor(sw), Math.floor(sh), Math.floor(targetX), Math.floor(targetY), Math.floor(targetW), Math.floor(targetH));
         }
 
         function getActiveVideos() {
             let vids = [];
-            
             const registry = window.videoElements || {};
-
-            if (registry['local'] && registry['local'].srcObject) {
-                vids.push(registry['local']);
-            }
-            
+            if (registry['local'] && registry['local'].srcObject) vids.push(registry['local']);
             Object.keys(registry).forEach(key => {
-                if (key !== 'local' && registry[key] && registry[key].srcObject) {
-                    vids.push(registry[key]);
-                }
+                if (key !== 'local' && registry[key] && registry[key].srcObject) vids.push(registry[key]);
             });
-            
             return vids;
         }
 
         function drawCombinedFeed(ctx, width, height, filterValue) {
             ctx.save();
-            ctx.translate(width, 0);
-            ctx.scale(-1, 1);
-            ctx.filter = filterValue || 'none';
-            
+            ctx.translate(width, 0); ctx.scale(-1, 1); ctx.filter = filterValue || 'none';
             const activeVids = getActiveVideos();
             const count = Math.max(1, activeVids.length); 
-            
             const layout = window.getGridLayout ? window.getGridLayout(count) : { cols: 1, rows: 1 };
-            const cols = layout.cols;
-            const rows = layout.rows;
-            
-            const cellW = width / cols;
-            const cellH = height / rows;
+            const cellW = width / layout.cols; const cellH = height / layout.rows;
 
             activeVids.forEach((vidElem, index) => {
-                const col = index % cols;
-                const row = Math.floor(index / cols);
-                const x = col * cellW;
-                const y = row * cellH;
-                
+                const col = index % layout.cols; const row = Math.floor(index / layout.cols);
+                const x = col * cellW; const y = row * cellH;
                 drawCenterCrop(ctx, vidElem, x, y, cellW, cellH);
-                
                 if (count > 1) {
-                    ctx.filter = 'none'; 
-                    ctx.strokeStyle = '#1f2937'; 
-                    ctx.lineWidth = 4;
-                    ctx.strokeRect(x, y, cellW, cellH);
-                    ctx.filter = filterValue || 'none';
+                    ctx.filter = 'none'; ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 4;
+                    ctx.strokeRect(x, y, cellW, cellH); ctx.filter = filterValue || 'none';
                 }
             });
-            
             ctx.restore();
+        }
+
+        function prepareStripBackground(canvasWidth, canvasHeight) {
+            const bgCanvas = document.createElement('canvas');
+            bgCanvas.width = canvasWidth; bgCanvas.height = canvasHeight;
+            const bgCtx = bgCanvas.getContext('2d');
+            const design = stripDesignSelect.value;
+            let textColor = '#000000';
+
+            if (design === 'dark') { bgCtx.fillStyle = '#121212'; textColor = '#ffffff'; } 
+            else if (design === 'coffee') { bgCtx.fillStyle = '#F4ECD8'; } 
+            else { bgCtx.fillStyle = '#ffffff'; }
+            
+            bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+            if (design === 'grid') {
+                bgCtx.strokeStyle = '#bae6fd'; bgCtx.lineWidth = 2;
+                for(let x=0; x<bgCanvas.width; x+=40) { bgCtx.beginPath(); bgCtx.moveTo(x,0); bgCtx.lineTo(x,bgCanvas.height); bgCtx.stroke(); }
+                for(let y=0; y<bgCanvas.height; y+=40) { bgCtx.beginPath(); bgCtx.moveTo(0,y); bgCtx.lineTo(bgCanvas.width,y); bgCtx.stroke(); }
+            } else if (design === 'coffee') {
+                for(let i=0; i<400; i++) {
+                    bgCtx.beginPath(); bgCtx.arc(Math.random()*bgCanvas.width, Math.random()*bgCanvas.height, Math.random()*2, 0, Math.PI*2);
+                    bgCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; bgCtx.fill();
+                }
+            } else if (design === 'flowers') {
+                let grad = bgCtx.createLinearGradient(0, 0, 0, bgCanvas.height);
+                grad.addColorStop(0, '#e8f5e9'); grad.addColorStop(1, '#fffde7');
+                bgCtx.fillStyle = grad; bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+                const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
+                bgCtx.textAlign = 'center'; bgCtx.textBaseline = 'middle';
+                for(let i = 0; i < 60; i++) {
+                    bgCtx.save();
+                    bgCtx.translate(Math.random() * bgCanvas.width, Math.random() * bgCanvas.height);
+                    bgCtx.rotate(Math.random() * Math.PI * 2); 
+                    bgCtx.font = `${Math.random() * 50 + 30}px Arial`; bgCtx.globalAlpha = 0.6;
+                    bgCtx.fillText(emojis[Math.floor(Math.random() * emojis.length)], 0, 0);
+                    bgCtx.restore();
+                }
+                bgCtx.globalAlpha = 1.0; bgCtx.textAlign = 'left'; bgCtx.textBaseline = 'alphabetic';
+            }
+
+            bgCtx.fillStyle = textColor; bgCtx.textAlign = 'center'; bgCtx.textBaseline = 'middle';
+            const fontChoice = fontSelect.value;
+            const textYPos = bgCanvas.height - (config.bottomPadding / 2) - 15;
+
+            let titleText = "PhotoBoth";
+            if (fontChoice === 'cursive') bgCtx.font = 'bold 72px "Dancing Script", cursive';
+            else if (fontChoice === 'romantic') bgCtx.font = '84px "Great Vibes", cursive';
+            else if (fontChoice === 'typewriter') { bgCtx.font = '54px "Special Elite", monospace'; titleText = "PHOTOBOTH"; } 
+            else if (fontChoice === 'sans-serif') { bgCtx.font = 'bold 54px "Inter", sans-serif'; titleText = "PHOTOBOTH"; } 
+            else { bgCtx.font = 'bold 54px "Courier Prime", monospace'; titleText = "PHOTOBOTH"; }
+            bgCtx.fillText(titleText, bgCanvas.width / 2, textYPos - 10);
+            
+            const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            if (fontChoice === 'sans-serif') bgCtx.font = '22px "Inter", sans-serif';
+            else if (fontChoice === 'typewriter') bgCtx.font = '24px "Special Elite", monospace';
+            else if (fontChoice === 'romantic') bgCtx.font = '36px "Great Vibes", cursive';
+            else if (fontChoice === 'cursive') bgCtx.font = '28px "Dancing Script", cursive';
+            else bgCtx.font = '24px "Courier Prime", monospace';
+            bgCtx.fillText(dateStr, bgCanvas.width / 2, textYPos + 45);
+
+            return bgCanvas;
         }
 
         function captureFrame() {
             try {
                 const frameCanvas = document.createElement('canvas');
-                frameCanvas.width = config.videoWidth;
-                frameCanvas.height = config.videoHeight;
+                frameCanvas.width = config.videoWidth; frameCanvas.height = config.videoHeight;
                 const ctx = frameCanvas.getContext('2d');
-                
-                ctx.fillStyle = '#111111';
-                ctx.fillRect(0, 0, frameCanvas.width, frameCanvas.height);
-        
-                try {
-                    drawCombinedFeed(ctx, config.videoWidth, config.videoHeight, filterSelect.value);
-                } catch(drawErr) {
-                    console.warn("Failed rendering combined feed, using blank frame.", drawErr);
-                }
-        
+                ctx.fillStyle = '#111111'; ctx.fillRect(0, 0, frameCanvas.width, frameCanvas.height);
+                try { drawCombinedFeed(ctx, config.videoWidth, config.videoHeight, filterSelect.value); } catch(drawErr) {}
                 capturedFrames.push(frameCanvas);
-        
-                try {
-                    livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8);
-                } catch (dataURLErr) {
-                    console.warn("Could not generate thumbnail preview.", dataURLErr);
-                }
-                
+                try { livePreview.src = frameCanvas.toDataURL('image/jpeg', 0.8); } catch (e) {}
                 livePreviewContainer.classList.remove('hidden');
-                
-            } catch (error) {
-                console.error("Critical failure during frame capture:", error);
-            }
+            } catch (error) { console.error("Capture fail:", error); }
         }
 
         function flashScreen() {
-            flashOverlay.classList.remove('flash-active');
-            void flashOverlay.offsetWidth; 
-            flashOverlay.classList.add('flash-active');
+            flashOverlay.classList.remove('flash-active'); void flashOverlay.offsetWidth; flashOverlay.classList.add('flash-active');
         }
 
         async function runCountdown() {
             countdownOverlay.classList.remove('hidden');
-            for (let i = config.countdownSeconds; i > 0; i--) {
-                countdownOverlay.innerText = i;
-                await delay(1000);
-            }
+            for (let i = config.countdownSeconds; i > 0; i--) { countdownOverlay.innerText = i; await delay(1000); }
             countdownOverlay.classList.add('hidden');
         }
 
         function renderStrip() {
-            try {
-                const totalPhotos = capturedFrames.length;
-                if (totalPhotos === 0) {
-                    console.warn("No photos in array to render!");
-                    return;
-                }
+            const totalPhotos = capturedFrames.length;
+            if (totalPhotos === 0) return;
 
-                const frameAspect = config.videoWidth / config.videoHeight;
-                const photoWidth = config.stripWidth - (config.padding * 2);
-                const photoHeight = photoWidth / frameAspect;
-                const totalHeight = config.padding + (totalPhotos * photoHeight) + ((totalPhotos - 1) * config.padding) + config.bottomPadding;
+            const frameAspect = config.videoWidth / config.videoHeight;
+            const photoWidth = config.stripWidth - (config.padding * 2);
+            const photoHeight = photoWidth / frameAspect;
+            const totalHeight = config.padding + (totalPhotos * photoHeight) + ((totalPhotos - 1) * config.padding) + config.bottomPadding;
 
-                stripCanvas.width = config.stripWidth;
-                stripCanvas.height = totalHeight;
+            stripCanvas.width = config.stripWidth; stripCanvas.height = totalHeight;
+            const bgCanvas = prepareStripBackground(config.stripWidth, totalHeight);
+            stripCtx.drawImage(bgCanvas, 0, 0);
 
-                const design = stripDesignSelect.value;
-                let textColor = '#000000';
+            capturedFrames.forEach((frame, index) => {
+                const yPos = config.padding + (index * (photoHeight + config.padding));
+                stripCtx.shadowColor = 'rgba(0, 0, 0, 0.2)'; stripCtx.shadowBlur = 10; stripCtx.shadowOffsetX = 0; stripCtx.shadowOffsetY = 4;
+                stripCtx.drawImage(frame, config.padding, yPos, photoWidth, photoHeight);
+                stripCtx.shadowColor = 'transparent'; stripCtx.shadowBlur = 0;
+            });
 
-                if (design === 'dark') {
-                    stripCtx.fillStyle = '#121212';
-                    textColor = '#ffffff';
-                } else if (design === 'coffee') {
-                    stripCtx.fillStyle = '#F4ECD8'; 
-                } else {
-                    stripCtx.fillStyle = '#ffffff'; 
-                }
-                
-                stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
-
-                if (design === 'grid') {
-                    stripCtx.strokeStyle = '#bae6fd'; 
-                    stripCtx.lineWidth = 2;
-                    for(let x=0; x<stripCanvas.width; x+=40) {
-                        stripCtx.beginPath(); stripCtx.moveTo(x,0); stripCtx.lineTo(x,stripCanvas.height); stripCtx.stroke();
-                    }
-                    for(let y=0; y<stripCanvas.height; y+=40) {
-                        stripCtx.beginPath(); stripCtx.moveTo(0,y); stripCtx.lineTo(stripCanvas.width,y); stripCtx.stroke();
-                    }
-                } else if (design === 'coffee') {
-                    for(let i=0; i<400; i++) {
-                        stripCtx.beginPath(); 
-                        stripCtx.arc(Math.random()*stripCanvas.width, Math.random()*stripCanvas.height, Math.random()*2, 0, Math.PI*2);
-                        stripCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
-                        stripCtx.fill();
-                    }
-                } else if (design === 'flowers') {
-                    let grad = stripCtx.createLinearGradient(0, 0, 0, stripCanvas.height);
-                    grad.addColorStop(0, '#e8f5e9');
-                    grad.addColorStop(1, '#fffde7');
-                    stripCtx.fillStyle = grad;
-                    stripCtx.fillRect(0, 0, stripCanvas.width, stripCanvas.height);
-                    const emojis = ['🌸', '🌼', '🌷', '🌻', '🌺', '🦋', '✨'];
-                    stripCtx.textAlign = 'center';
-                    stripCtx.textBaseline = 'middle';
-                    for(let i = 0; i < 60; i++) {
-                        let x = Math.random() * stripCanvas.width;
-                        let y = Math.random() * stripCanvas.height;
-                        let emoji = emojis[Math.floor(Math.random() * emojis.length)];
-                        let size = Math.random() * 50 + 30;
-                        stripCtx.font = `${size}px Arial`;
-                        stripCtx.globalAlpha = 0.6;
-                        stripCtx.save();
-                        stripCtx.translate(x, y);
-                        stripCtx.rotate(Math.random() * Math.PI * 2); 
-                        stripCtx.fillText(emoji, 0, 0);
-                        stripCtx.restore();
-                    }
-                    stripCtx.globalAlpha = 1.0;
-                    stripCtx.textAlign = 'left';
-                    stripCtx.textBaseline = 'alphabetic';
-                }
-
-                capturedFrames.forEach((frame, index) => {
-                    const yPos = config.padding + (index * (photoHeight + config.padding));
-                    stripCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-                    stripCtx.shadowBlur = 10;
-                    stripCtx.shadowOffsetX = 0;
-                    stripCtx.shadowOffsetY = 4;
-                    stripCtx.drawImage(frame, config.padding, yPos, photoWidth, photoHeight);
-                    stripCtx.shadowColor = 'transparent';
-                    stripCtx.shadowBlur = 0;
-                });
-
-                stripCtx.fillStyle = textColor;
-                stripCtx.textAlign = 'center';
-                stripCtx.textBaseline = 'middle';
-                
-                const fontChoice = fontSelect.value;
-                const textYPos = stripCanvas.height - (config.bottomPadding / 2) - 15;
-
-                if (fontChoice === 'cursive') {
-                    stripCtx.font = 'bold 72px "Dancing Script", cursive';
-                    stripCtx.fillText("PhotoBoth", stripCanvas.width / 2, textYPos - 10);
-                } else if (fontChoice === 'romantic') {
-                    stripCtx.font = '84px "Great Vibes", cursive';
-                    stripCtx.fillText("PhotoBoth", stripCanvas.width / 2, textYPos - 10);
-                } else if (fontChoice === 'typewriter') {
-                    stripCtx.font = '54px "Special Elite", monospace';
-                    stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
-                } else if (fontChoice === 'sans-serif') {
-                    stripCtx.font = 'bold 54px "Inter", sans-serif';
-                    stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
-                } else { 
-                    stripCtx.font = 'bold 54px "Courier Prime", monospace';
-                    stripCtx.fillText("PHOTOBOTH", stripCanvas.width / 2, textYPos);
-                }
-                
-                const today = new Date();
-                const dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-                
-                if (fontChoice === 'sans-serif') {
-                    stripCtx.font = '22px "Inter", sans-serif';
-                } else if (fontChoice === 'typewriter') {
-                    stripCtx.font = '24px "Special Elite", monospace';
-                } else if (fontChoice === 'romantic') {
-                    stripCtx.font = '36px "Great Vibes", cursive';
-                } else if (fontChoice === 'cursive') {
-                    stripCtx.font = '28px "Dancing Script", cursive';
-                } else {
-                    stripCtx.font = '24px "Courier Prime", monospace';
-                }
-                
-                stripCtx.fillText(dateStr, stripCanvas.width / 2, textYPos + 45);
-
-            } catch (renderError) {
-                console.error("Failed executing strip render logic:", renderError);
-            } finally {
-                if (capturedFrames.length > 0) {
-                    stripCanvas.classList.remove('hidden');
-                    stripPlaceholder.classList.add('hidden');
-                    downloadBtn.classList.remove('hidden');
-                }
-            }
+            stripCanvas.classList.remove('hidden'); stripPlaceholder.classList.add('hidden'); downloadBtn.classList.remove('hidden');
         }
 
         function downloadStrip() {
             if (capturedFrames.length === 0) return;
             try {
-                const link = document.createElement('a');
-                link.download = `film-strip-${Date.now()}.png`;
-                link.href = stripCanvas.toDataURL('image/png', 1.0);
-                link.click();
-            } catch(e) {
-                alert("Security block: Cannot download. Right click the strip and save it directly.");
-            }
+                const link = document.createElement('a'); link.download = `film-strip-${Date.now()}.png`; link.href = stripCanvas.toDataURL('image/png', 1.0); link.click();
+            } catch(e) { alert("Cannot download. Right click the strip and save it directly."); }
         }
 
         window.startSequence = async function() {
@@ -1070,197 +665,120 @@
             
             try {
                 capturedFrames = [];
-                
                 config.totalPhotos = parseInt(photoCountSelect.value, 10);
                 config.countdownSeconds = parseInt(countdownSelect.value, 10);
                 
-                startBtn.disabled = true;
-                photoCountSelect.disabled = true;
-                filterSelect.disabled = true;
-                stripDesignSelect.disabled = true;
-                countdownSelect.disabled = true;
-                fontSelect.disabled = true;
+                startBtn.disabled = true; photoCountSelect.disabled = true; filterSelect.disabled = true;
+                stripDesignSelect.disabled = true; countdownSelect.disabled = true; fontSelect.disabled = true;
                 
                 startBtn.innerHTML = '<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Capturing...';
-                downloadBtn.classList.add('hidden');
-                downloadVideoBtn.classList.add('hidden');
-                stripPlaceholder.classList.remove('hidden');
-                stripCanvas.classList.add('hidden');
-                btsPreview.classList.add('hidden');
-                btsPreview.src = '';
-                livePreviewContainer.classList.add('hidden');
-                livePreview.src = '';
+                downloadBtn.classList.add('hidden'); downloadVideoBtn.classList.add('hidden');
+                stripPlaceholder.classList.remove('hidden'); stripCanvas.classList.add('hidden');
+                btsPreview.classList.add('hidden'); btsPreview.src = '';
+                livePreviewContainer.classList.add('hidden'); livePreview.src = '';
 
                 let mediaRecorder = null;
                 let isVideoRecording = false;
 
-                try {
-                    const polaroidPadding = 40; 
-                    const polaroidBottom = 160; 
+                // --- NEW "LIFE FOUR CUTS" VIDEO GENERATION ENGINE ---
+                const frameAspect = config.videoWidth / config.videoHeight;
+                const photoWidth = config.stripWidth - (config.padding * 2);
+                const photoHeight = photoWidth / frameAspect;
+                const totalHeight = config.padding + (config.totalPhotos * photoHeight) + ((config.totalPhotos - 1) * config.padding) + config.bottomPadding;
 
-                    const recordCanvas = document.createElement('canvas');
-                    recordCanvas.width = config.videoWidth + (polaroidPadding * 2);
-                    recordCanvas.height = config.videoHeight + polaroidPadding + polaroidBottom;
-                    const recCtx = recordCanvas.getContext('2d');
-                    
-                    const bgCanvas = document.createElement('canvas');
-                    bgCanvas.width = recordCanvas.width;
-                    bgCanvas.height = recordCanvas.height;
-                    const bgCtx = bgCanvas.getContext('2d');
-                    
-                    const design = stripDesignSelect.value;
-                    let videoTextColor = '#000000';
-                    
-                    if (design === 'dark') {
-                        bgCtx.fillStyle = '#121212';
-                        videoTextColor = '#ffffff';
-                    } else if (design === 'coffee') {
-                        bgCtx.fillStyle = '#F4ECD8';
-                    } else {
-                        bgCtx.fillStyle = '#ffffff';
-                    }
-                    bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
-                    
-                    if (design === 'grid') {
-                        bgCtx.strokeStyle = '#bae6fd';
-                        bgCtx.lineWidth = 2;
-                        for(let x=0; x<bgCanvas.width; x+=40) { bgCtx.beginPath(); bgCtx.moveTo(x,0); bgCtx.lineTo(x,bgCanvas.height); bgCtx.stroke(); }
-                        for(let y=0; y<bgCanvas.height; y+=40) { bgCtx.beginPath(); bgCtx.moveTo(0,y); bgCtx.lineTo(bgCanvas.width,y); bgCtx.stroke(); }
-                    } else if (design === 'coffee') {
-                        for(let i=0; i<400; i++) {
-                            bgCtx.beginPath(); 
-                            bgCtx.arc(Math.random()*bgCanvas.width, Math.random()*bgCanvas.height, Math.random()*2, 0, Math.PI*2);
-                            bgCtx.fillStyle = `rgba(139, 69, 19, ${Math.random()*0.15})`; 
-                            bgCtx.fill();
-                        }
-                    } else if (design === 'flowers') {
-                        let grad = bgCtx.createLinearGradient(0, 0, 0, bgCanvas.height);
-                        grad.addColorStop(0, '#e8f5e9');
-                        grad.addColorStop(1, '#fffde7');
-                        bgCtx.fillStyle = grad;
-                        bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
-                    }
-                    
-                    recCtx.fillStyle = '#000000';
-                    recCtx.fillRect(0, 0, recordCanvas.width, recordCanvas.height);
-                    
-                    if (!recordCanvas.captureStream) {
-                        throw new Error("Canvas captureStream is not supported in this browser.");
-                    }
+                // Scale down the hidden video recording canvas to 50% to prevent mobile hardware encoders from crashing due to height limits
+                const scale = 0.5; 
+                const recordCanvas = document.createElement('canvas');
+                recordCanvas.width = config.stripWidth * scale;
+                recordCanvas.height = totalHeight * scale;
+                const recCtx = recordCanvas.getContext('2d');
+                
+                const bgCanvas = prepareStripBackground(config.stripWidth, totalHeight);
+
+                try {
+                    if (!recordCanvas.captureStream) throw new Error("Canvas captureStream is not supported in this browser.");
                     const stream = recordCanvas.captureStream(30);
                     
+                    const mimeTypes = ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
                     let options = {};
-                    const mimeTypes = [
-                        'video/mp4;codecs=avc1',
-                        'video/webm;codecs=vp9',
-                        'video/webm;codecs=vp8',
-                        'video/webm',
-                        'video/mp4'
-                    ];
-                    
-                    for (const mime of mimeTypes) {
-                        if (MediaRecorder.isTypeSupported(mime)) {
-                            options = { mimeType: mime };
-                            break;
-                        }
-                    }
+                    for (const mime of mimeTypes) { if (MediaRecorder.isTypeSupported(mime)) { options = { mimeType: mime }; break; } }
                     
                     mediaRecorder = new MediaRecorder(stream, options);
                     const recordedChunks = [];
                     
-                    mediaRecorder.ondataavailable = (e) => {
-                        if (e.data.size > 0) recordedChunks.push(e.data);
-                    };
+                    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
                     
                     mediaRecorder.onstop = () => {
                         try {
                             if (recordedChunks.length === 0) return;
-                            
                             let actualMimeType = mediaRecorder.mimeType || (options.mimeType || 'video/webm');
                             let ext = actualMimeType.includes('mp4') ? 'mp4' : 'webm';
-                            
                             const blob = new Blob(recordedChunks, { type: actualMimeType });
                             const videoUrl = URL.createObjectURL(blob);
-                            
-                            btsPreview.src = videoUrl;
-                            btsPreview.classList.remove('hidden');
-
+                            btsPreview.src = videoUrl; btsPreview.classList.remove('hidden');
                             downloadVideoBtn.onclick = () => {
-                                const a = document.createElement('a');
-                                a.style.display = 'none';
-                                a.href = videoUrl;
-                                a.download = `photobooth-bts-${Date.now()}.${ext}`;
-                                document.body.appendChild(a);
-                                a.click();
+                                const a = document.createElement('a'); a.style.display = 'none'; a.href = videoUrl;
+                                a.download = `photobooth-bts-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
                             };
                             downloadVideoBtn.classList.remove('hidden');
-                        } catch(vidErr) {
-                            console.error("Video processing failed after stop:", vidErr);
-                        }
+                        } catch(vidErr) {}
                     };
                     
                     isVideoRecording = true;
+                    window.currentActiveSlot = 0;
                     
                     function drawRecordFrame() {
                         if (!isVideoRecording) return;
                         
-                        recCtx.drawImage(bgCanvas, 0, 0);
                         recCtx.save();
-                        recCtx.translate(polaroidPadding, polaroidPadding);
-                        recCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
-                        recCtx.shadowBlur = 10;
-                        recCtx.shadowOffsetY = 4;
-                        drawCombinedFeed(recCtx, config.videoWidth, config.videoHeight, filterSelect.value);
-                        recCtx.restore();
-
-                        const fontChoice = fontSelect.value;
-                        const textYPos = recordCanvas.height - (polaroidBottom / 2) - 10;
+                        recCtx.scale(scale, scale); // Apply 0.5x scaling
                         
-                        recCtx.fillStyle = videoTextColor; 
-                        recCtx.textAlign = 'center';
-                        recCtx.textBaseline = 'middle';
+                        // Draw the Strip Design
+                        recCtx.drawImage(bgCanvas, 0, 0);
 
-                        let titleText = "PhotoBoth";
-                        if (fontChoice === 'cursive') {
-                            recCtx.font = 'bold 64px "Dancing Script", cursive';
-                        } else if (fontChoice === 'romantic') {
-                            recCtx.font = '76px "Great Vibes", cursive';
-                        } else if (fontChoice === 'typewriter') {
-                            recCtx.font = '48px "Special Elite", monospace';
-                            titleText = "PHOTOBOTH";
-                        } else if (fontChoice === 'sans-serif') {
-                            recCtx.font = 'bold 48px "Inter", sans-serif';
-                            titleText = "PHOTOBOTH";
-                        } else { 
-                            recCtx.font = 'bold 48px "Courier Prime", monospace';
-                            titleText = "PHOTOBOTH";
+                        for (let i = 0; i < config.totalPhotos; i++) {
+                            const yPos = config.padding + (i * (photoHeight + config.padding));
+                            
+                            recCtx.save();
+                            recCtx.shadowColor = 'rgba(0, 0, 0, 0.2)';
+                            recCtx.shadowBlur = 10;
+                            recCtx.shadowOffsetX = 0;
+                            recCtx.shadowOffsetY = 4;
+
+                            if (i < capturedFrames.length) {
+                                // Draw static, already-captured photo
+                                recCtx.drawImage(capturedFrames[i], config.padding, yPos, photoWidth, photoHeight);
+                            } else {
+                                // Draw LIVE FEED for the current AND all future slots simultaneously
+                                recCtx.translate(config.padding, yPos);
+                                drawCombinedFeed(recCtx, photoWidth, photoHeight, filterSelect.value);
+                            }
+                            recCtx.restore();
                         }
-                        recCtx.fillText(titleText, recordCanvas.width / 2, textYPos - 15);
-
-                        const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-                        if (fontChoice === 'sans-serif') recCtx.font = '20px "Inter", sans-serif';
-                        else if (fontChoice === 'typewriter') recCtx.font = '22px "Special Elite", monospace';
-                        else if (fontChoice === 'romantic') recCtx.font = '32px "Great Vibes", cursive';
-                        else if (fontChoice === 'cursive') recCtx.font = '24px "Dancing Script", cursive';
-                        else recCtx.font = '22px "Courier Prime", monospace';
                         
-                        recCtx.fillText(dateStr, recordCanvas.width / 2, textYPos + 35);
+                        recCtx.restore(); // Restore scale
                         requestAnimationFrame(drawRecordFrame);
                     }
                     
                     drawRecordFrame();
-                    mediaRecorder.start(500);
+                    mediaRecorder.start(100);
                 } catch (err) {
                     console.warn("Behind The Scenes video recording disabled.", err);
                     isVideoRecording = false; 
                 }
 
+                // Run the sequence
                 for (let i = 0; i < config.totalPhotos; i++) {
+                    window.currentActiveSlot = i;
                     await runCountdown();
                     captureFrame();
                     flashScreen();
                     await delay(500); 
                 }
+
+                // Give the video 2 extra seconds to admire the completed, static photo strip
+                window.currentActiveSlot = -1; 
+                await delay(2000);
 
                 if (mediaRecorder && mediaRecorder.state !== 'inactive') {
                     isVideoRecording = false;
@@ -1270,20 +788,13 @@
                 renderStrip();
                 
             } catch (globalError) {
-                console.error("Sequence Error:", globalError);
                 alert("An error occurred while generating your strip. Please try again.");
             } finally {
                 window.isCapturing = false;
-                startBtn.disabled = false;
-                photoCountSelect.disabled = false;
-                filterSelect.disabled = false;
-                stripDesignSelect.disabled = false;
-                countdownSelect.disabled = false;
-                fontSelect.disabled = false;
-                
+                startBtn.disabled = false; photoCountSelect.disabled = false; filterSelect.disabled = false;
+                stripDesignSelect.disabled = false; countdownSelect.disabled = false; fontSelect.disabled = false;
                 const count = photoCountSelect.value;
-                const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
-                startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Retake (${photoText})`;
+                startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Retake (${count === '1' ? '1 Photo' : `${count} Photos`})`;
             }
         }
 
@@ -1292,8 +803,7 @@
         photoCountSelect.addEventListener('change', () => {
             if (!isCapturing) {
                 const count = photoCountSelect.value;
-                const photoText = count === '1' ? '1 Photo' : `${count} Photos`;
-                startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth (${photoText})`;
+                startBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg> Sync & Start Booth (${count === '1' ? '1 Photo' : `${count} Photos`})`;
             }
             if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
         });
