@@ -56,14 +56,44 @@
                 }
             });
         }, 2000);
+    
+        // Unified Text Renderer for both Images and Video Frames
+        window.drawSharedText = function(ctx, canvasWidth, canvasHeight, design, fontChoice) {
+            const textYPos = canvasHeight - (config.bottomPadding / 2) - 15;
+            let textColor = (design === 'dark') ? '#ffffff' : '#000000';
+        
+            ctx.fillStyle = textColor;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            let titleText = "PhotoBoth";
+            if (fontChoice === 'cursive') ctx.font = 'bold 72px "Dancing Script", cursive';
+            else if (fontChoice === 'romantic') ctx.font = '84px "Great Vibes", cursive';
+            else if (fontChoice === 'typewriter') { ctx.font = '54px "Special Elite", monospace'; titleText = "PHOTOBOTH"; } 
+            else if (fontChoice === 'sans-serif') { ctx.font = 'bold 54px "Inter", sans-serif'; titleText = "PHOTOBOTH"; } 
+            else { ctx.font = 'bold 54px "Courier Prime", monospace'; titleText = "PHOTOBOTH"; }
+        
+            ctx.fillText(titleText, canvasWidth / 2, textYPos - 10);
+        
+            const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+            if (fontChoice === 'sans-serif') ctx.font = '22px "Inter", sans-serif';
+            else if (fontChoice === 'typewriter') ctx.font = '24px "Special Elite", monospace';
+            else if (fontChoice === 'romantic') ctx.font = '36px "Great Vibes", cursive';
+            else if (fontChoice === 'cursive') ctx.font = '28px "Dancing Script", cursive';
+            else ctx.font = '24px "Courier Prime", monospace';
+        
+            ctx.fillText(dateStr, canvasWidth / 2, textYPos + 45);
+        };
 
         window.getGridLayout = function(count, forceStrip = false) {
             if (count <= 1) return { cols: 1, rows: 1 };
             
+            // If we are forcing a strip (for video) or it's an odd number
             if (forceStrip || count % 2 !== 0) {
                 return { cols: count, rows: 1 }; 
             }
 
+            // For even numbers (and polaroid mode), use grid
             for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
                 if (count % rows === 0) return { cols: count / rows, rows: rows };
             }
@@ -267,7 +297,7 @@
             const grid = document.getElementById('video-grid');
             if (!window.getGridLayout) return;
             const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
-            const layout = window.getGridLayout(count, !isPolaroid); 
+            const layout = window.getGridLayout(count, !isPolaroid); // Force strip if not polaroid
             grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
             grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
@@ -289,14 +319,14 @@
         ::-webkit-scrollbar-track { background: #1f2937; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
-        
-        /* Forces browser to download fonts immediately so videos do not use default font */
+
+        /* Hidden preloader to force browser to prepare fonts for the video canvas immediately */
         .font-preload { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; overflow: hidden; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center py-10 px-4">
 
-    <!-- Hidden Font Preloader -->
+    <!-- Font Preloader -->
     <div class="font-preload">
         <span style="font-family: 'Courier Prime'; font-weight: 700;">preload</span>
         <span style="font-family: 'Dancing Script'; font-weight: 700;">preload</span>
@@ -305,6 +335,7 @@
         <span style="font-family: 'Special Elite'; font-weight: 400;">preload</span>
     </div>
 
+    <!-- HEADER -->
     <header class="text-center mb-10 w-full max-w-2xl mx-auto px-4">
         <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-4 text-white drop-shadow-md cursive-title">PhotoBoth</h1>
         <div class="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 shadow-lg">
@@ -313,16 +344,16 @@
         </div>
     </header>
 
-    <main class="w-full max-w-7xl flex flex-col lg:flex-row gap-8 items-start justify-center">
+    <main class="w-full max-w-7xl flex flex-col md:flex-row gap-8 items-start justify-center">
         
-        <!-- Left Column (Strictly forced to Flex-Col to prevent breaking layout) -->
-        <div class="w-full lg:w-[800px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
+        <!-- Left Column -->
+        <div class="w-full md:w-[60%] lg:w-[800px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
             
             <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-inner">
                 <h3 class="text-xs font-bold text-indigo-400 uppercase tracking-widest block mb-3 border-b border-gray-700 pb-2">Virtual Booth Sync</h3>
                 <div id="room-setup" class="flex flex-col gap-4">
                     <button id="generate-btn" class="w-full py-2.5 bg-gray-700 hover:bg-gray-600 text-white text-sm font-semibold rounded transition-colors shadow-sm flex justify-center items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg Generate a Room Code
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg> Generate a Room Code
                     </button>
                     <div class="flex items-center gap-2"><hr class="flex-grow border-gray-700"><span class="text-xs text-gray-500 uppercase font-semibold">OR</span><hr class="flex-grow border-gray-700"></div>
                     <div class="flex gap-2">
@@ -424,18 +455,21 @@
         </div>
 
         <!-- Right Column -->
-        <div class="w-full lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
+        <div class="w-full md:w-[40%] lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
             <div class="w-full flex justify-between items-center mb-4 flex-wrap gap-2">
                 <h2 class="text-xl font-semibold text-white">Your Strip & BTS</h2>
                 <div class="flex gap-2 flex-wrap justify-end">
                     <button id="download-video-strip-btn" class="hidden px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> Strip Video
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+                        Strip Video
                     </button>
                     <button id="download-video-grid-btn" class="hidden px-3 py-2 bg-pink-600 hover:bg-pink-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg> Polaroid Video
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
+                        Polaroid Video
                     </button>
                     <button id="download-btn" class="hidden px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg> <span id="photo-dl-text">Photo</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                        <span id="photo-dl-text">Photo</span>
                     </button>
                 </div>
             </div>
@@ -523,33 +557,6 @@
         
         const stripCtx = stripCanvas.getContext('2d');
         let capturedFrames = [];
-
-        window.drawSharedText = function(ctx, canvasWidth, canvasHeight, design, fontChoice) {
-            const textYPos = canvasHeight - (config.bottomPadding / 2) - 15;
-            let textColor = (design === 'dark') ? '#ffffff' : '#000000';
-            
-            ctx.fillStyle = textColor;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-
-            let titleText = "PhotoBoth";
-            if (fontChoice === 'cursive') ctx.font = 'bold 72px "Dancing Script", cursive';
-            else if (fontChoice === 'romantic') ctx.font = '84px "Great Vibes", cursive';
-            else if (fontChoice === 'typewriter') { ctx.font = '54px "Special Elite", monospace'; titleText = "PHOTOBOTH"; } 
-            else if (fontChoice === 'sans-serif') { ctx.font = 'bold 54px "Inter", sans-serif'; titleText = "PHOTOBOTH"; } 
-            else { ctx.font = 'bold 54px "Courier Prime", monospace'; titleText = "PHOTOBOTH"; }
-            
-            ctx.fillText(titleText, canvasWidth / 2, textYPos - 10);
-            
-            const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-            if (fontChoice === 'sans-serif') ctx.font = '22px "Inter", sans-serif';
-            else if (fontChoice === 'typewriter') ctx.font = '24px "Special Elite", monospace';
-            else if (fontChoice === 'romantic') ctx.font = '36px "Great Vibes", cursive';
-            else if (fontChoice === 'cursive') ctx.font = '28px "Dancing Script", cursive';
-            else ctx.font = '24px "Courier Prime", monospace';
-            
-            ctx.fillText(dateStr, canvasWidth / 2, textYPos + 45);
-        };
 
         async function initCamera() {
             try {
