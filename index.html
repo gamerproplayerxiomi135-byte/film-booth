@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PhotoBoth</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- FIX: Explicitly request all font weights (400 and 700) to ensure the canvas can bold them -->
+    
+    <!-- Explicitly request all font weights to ensure the canvas and video can bold them -->
     <link href="https://fonts.googleapis.com/css2?family=Courier+Prime:ital,wght@0,400;0,700;1,400;1,700&family=Dancing+Script:wght@400;600;700&family=Great+Vibes&family=Inter:wght@300;400;600;700&family=Special+Elite&display=swap" rel="stylesheet">
     
     <!-- PeerJS for Live Video Streaming -->
@@ -44,7 +45,7 @@
         let cameraReadyResolver;
         window.cameraReadyPromise = new Promise((resolve) => { cameraReadyResolver = resolve; });
 
-        // Ensure Document Fonts are completely loaded before capturing
+        // Ensure Document Fonts are completely loaded
         document.fonts.ready.then(() => console.log("All Web Fonts Loaded"));
 
         setInterval(() => {
@@ -289,13 +290,13 @@
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
         
-        /* FIX: Hidden Font Preloader. Forces browser to download fonts before video starts */
+        /* Forces browser to download fonts immediately so videos do not use default font */
         .font-preload { position: absolute; opacity: 0; pointer-events: none; width: 0; height: 0; overflow: hidden; }
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center py-10 px-4">
 
-    <!-- FIX: Hidden Font Preloader container -->
+    <!-- Hidden Font Preloader -->
     <div class="font-preload">
         <span style="font-family: 'Courier Prime'; font-weight: 700;">preload</span>
         <span style="font-family: 'Dancing Script'; font-weight: 700;">preload</span>
@@ -304,7 +305,6 @@
         <span style="font-family: 'Special Elite'; font-weight: 400;">preload</span>
     </div>
 
-    <!-- HEADER -->
     <header class="text-center mb-10 w-full max-w-2xl mx-auto px-4">
         <h1 class="text-5xl md:text-7xl font-bold tracking-tight mb-4 text-white drop-shadow-md cursive-title">PhotoBoth</h1>
         <div class="bg-gray-800/60 border border-gray-700/50 rounded-xl p-5 shadow-lg">
@@ -313,10 +313,10 @@
         </div>
     </header>
 
-    <main class="w-full max-w-7xl flex flex-col md:flex-row gap-8 items-start justify-center">
+    <main class="w-full max-w-7xl flex flex-col lg:flex-row gap-8 items-start justify-center">
         
-        <!-- Left Column -->
-        <div class="w-full md:w-[60%] lg:w-[800px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
+        <!-- Left Column (Strictly forced to Flex-Col to prevent breaking layout) -->
+        <div class="w-full lg:w-[800px] flex flex-col gap-6 bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800">
             
             <div class="bg-gray-800 p-5 rounded-lg border border-gray-700 shadow-inner">
                 <h3 class="text-xs font-bold text-indigo-400 uppercase tracking-widest block mb-3 border-b border-gray-700 pb-2">Virtual Booth Sync</h3>
@@ -424,21 +424,18 @@
         </div>
 
         <!-- Right Column -->
-        <div class="w-full md:w-[40%] lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
+        <div class="w-full lg:w-[400px] flex flex-col items-center bg-gray-900 p-6 rounded-2xl shadow-2xl border border-gray-800 h-full min-h-[600px]">
             <div class="w-full flex justify-between items-center mb-4 flex-wrap gap-2">
                 <h2 class="text-xl font-semibold text-white">Your Strip & BTS</h2>
                 <div class="flex gap-2 flex-wrap justify-end">
                     <button id="download-video-strip-btn" class="hidden px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-                        Strip Video
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> Strip Video
                     </button>
                     <button id="download-video-grid-btn" class="hidden px-3 py-2 bg-pink-600 hover:bg-pink-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg>
-                        Polaroid Video
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="12" y1="3" x2="12" y2="21"/></svg> Polaroid Video
                     </button>
                     <button id="download-btn" class="hidden px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-md text-xs transition-colors shadow-md flex items-center gap-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
-                        <span id="photo-dl-text">Photo</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg> <span id="photo-dl-text">Photo</span>
                     </button>
                 </div>
             </div>
@@ -492,7 +489,7 @@
         const livePreview = document.getElementById('live-preview');
         
         window.isCapturing = false;
-        window.currentActiveSlot = -1; // Controls the video style rendering
+        window.currentActiveSlot = -1; 
 
         if (retryCameraBtn) {
             retryCameraBtn.addEventListener('click', () => {
@@ -527,7 +524,6 @@
         const stripCtx = stripCanvas.getContext('2d');
         let capturedFrames = [];
 
-        // FIX: UNIFIED FONT ENGINE (Forces both Photo and Video to use same font processing)
         window.drawSharedText = function(ctx, canvasWidth, canvasHeight, design, fontChoice) {
             const textYPos = canvasHeight - (config.bottomPadding / 2) - 15;
             let textColor = (design === 'dark') ? '#ffffff' : '#000000';
@@ -537,7 +533,6 @@
             ctx.textBaseline = 'middle';
 
             let titleText = "PhotoBoth";
-            // Important: These font names match the loaded Google Fonts perfectly.
             if (fontChoice === 'cursive') ctx.font = 'bold 72px "Dancing Script", cursive';
             else if (fontChoice === 'romantic') ctx.font = '84px "Great Vibes", cursive';
             else if (fontChoice === 'typewriter') { ctx.font = '54px "Special Elite", monospace'; titleText = "PHOTOBOTH"; } 
@@ -655,7 +650,6 @@
                 bgCtx.globalAlpha = 1.0; bgCtx.textAlign = 'left'; bgCtx.textBaseline = 'alphabetic';
             }
 
-            // Note: Text is deliberately absent here because it is drawn live via drawSharedText below
             return bgCanvas;
         }
 
@@ -713,7 +707,6 @@
                 stripCtx.shadowColor = 'transparent'; stripCtx.shadowBlur = 0;
             });
             
-            // Draw live text onto the static generated strip
             window.drawSharedText(stripCtx, config.stripWidth, totalHeight, stripDesignSelect.value, fontSelect.value);
             
             const photoDlText = document.getElementById('photo-dl-text');
@@ -786,7 +779,6 @@
                     let options = {};
                     for (const mime of mimeTypes) { if (MediaRecorder.isTypeSupported(mime)) { options = { mimeType: mime }; break; } }
                     
-                    // INITIALIZE STRIP RECORDER
                     stripRecorder = new MediaRecorder(stripRecCanvas.captureStream(30), options);
                     const stripChunks = [];
                     stripRecorder.ondataavailable = (e) => { if (e.data.size > 0) stripChunks.push(e.data); };
@@ -795,10 +787,7 @@
                             if (stripChunks.length === 0) return;
                             let ext = (stripRecorder.mimeType || options.mimeType || 'video/webm').includes('mp4') ? 'mp4' : 'webm';
                             const url = URL.createObjectURL(new Blob(stripChunks, { type: stripRecorder.mimeType }));
-                            
-                            stripVideoPreview.src = url; 
-                            stripVideoContainer.classList.remove('hidden');
-
+                            stripVideoPreview.src = url; stripVideoContainer.classList.remove('hidden');
                             downloadStripVidBtn.onclick = () => {
                                 const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
                                 a.download = `photobooth-strip-video-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
@@ -807,7 +796,6 @@
                         } catch(vidErr) {}
                     };
 
-                    // INITIALIZE POLAROID/GRID RECORDER
                     gridRecorder = new MediaRecorder(gridRecCanvas.captureStream(30), options);
                     const gridChunks = [];
                     gridRecorder.ondataavailable = (e) => { if (e.data.size > 0) gridChunks.push(e.data); };
@@ -816,10 +804,7 @@
                             if (gridChunks.length === 0) return;
                             let ext = (gridRecorder.mimeType || options.mimeType || 'video/webm').includes('mp4') ? 'mp4' : 'webm';
                             const url = URL.createObjectURL(new Blob(gridChunks, { type: gridRecorder.mimeType }));
-                            
-                            gridVideoPreview.src = url; 
-                            gridVideoContainer.classList.remove('hidden');
-
+                            gridVideoPreview.src = url; gridVideoContainer.classList.remove('hidden');
                             downloadGridVidBtn.onclick = () => {
                                 const a = document.createElement('a'); a.style.display = 'none'; a.href = url;
                                 a.download = `photobooth-polaroid-video-${Date.now()}.${ext}`; document.body.appendChild(a); a.click();
@@ -835,11 +820,10 @@
                     function drawRecordFrame() {
                         if (!isVideoRecording) return;
                         
-                        // FIX: DRAW STRIP CANVAS WITH CORRECT SCALE AND FONT RENDERING ORDER
+                        // STRIP CANVAS
                         stripRecCtx.save();
                         stripRecCtx.scale(scale, scale); 
                         stripRecCtx.drawImage(stripBgCanvas, 0, 0);
-                        
                         for (let i = 0; i < config.totalPhotos; i++) {
                             const yPos = config.padding + (i * (stripPhotoHeight + config.padding));
                             stripRecCtx.save();
@@ -855,35 +839,29 @@
                             }
                             stripRecCtx.restore();
                         }
-                        
-                        // Draw live text for Strip Video exactly on the scaled context
-                        window.drawSharedText(stripRecCtx, config.stripWidth, stripTotalHeight, stripDesignSelect.value, fontSelect.value);
-                        
                         if (window.flashOpacity > 0) {
                             stripRecCtx.fillStyle = `rgba(255, 255, 255, ${window.flashOpacity})`;
                             stripRecCtx.fillRect(0, 0, config.stripWidth, stripTotalHeight);
                         }
-                        stripRecCtx.restore(); // Final restore resets scale back to normal
+                        window.drawSharedText(stripRecCtx, config.stripWidth, stripTotalHeight, stripDesignSelect.value, fontSelect.value);
+                        stripRecCtx.restore();
 
-                        // FIX: DRAW GRID/POLAROID CANVAS WITH CORRECT SCALE AND FONT RENDERING ORDER
+                        // GRID/POLAROID CANVAS
                         gridRecCtx.save();
                         gridRecCtx.scale(scale, scale); 
                         gridRecCtx.drawImage(gridBgCanvas, 0, 0);
-                        
                         gridRecCtx.save();
                         gridRecCtx.shadowColor = 'rgba(0, 0, 0, 0.2)'; gridRecCtx.shadowBlur = 10; gridRecCtx.shadowOffsetY = 4;
                         gridRecCtx.translate(config.padding, config.padding);
                         drawCombinedFeed(gridRecCtx, gridPhotoWidth, gridPhotoHeight, filterSelect.value);
                         gridRecCtx.restore();
 
-                        // Draw live text for Grid Video exactly on the scaled context
-                        window.drawSharedText(gridRecCtx, config.stripWidth, gridTotalHeight, stripDesignSelect.value, fontSelect.value);
-
                         if (window.flashOpacity > 0) {
                             gridRecCtx.fillStyle = `rgba(255, 255, 255, ${window.flashOpacity})`;
                             gridRecCtx.fillRect(0, 0, config.stripWidth, gridTotalHeight);
                         }
-                        gridRecCtx.restore(); // Final restore resets scale back to normal
+                        window.drawSharedText(gridRecCtx, config.stripWidth, gridTotalHeight, stripDesignSelect.value, fontSelect.value);
+                        gridRecCtx.restore();
 
                         window.flashOpacity = Math.max(0, window.flashOpacity - 0.1); 
                         requestAnimationFrame(drawRecordFrame);
@@ -897,7 +875,6 @@
                     isVideoRecording = false; 
                 }
 
-                // Run the sequence
                 for (let i = 0; i < config.totalPhotos; i++) {
                     window.currentActiveSlot = i;
                     await runCountdown();
@@ -906,7 +883,6 @@
                     await delay(500); 
                 }
 
-                // Give the video 2 extra seconds to admire the completed strip
                 window.currentActiveSlot = -1; 
                 await delay(2000);
 
