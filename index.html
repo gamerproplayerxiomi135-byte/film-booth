@@ -14,29 +14,48 @@
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyCdACV1qmBuBR0XE8wonlToMcyhpFzQSN4",
-            authDomain: "photoboth-68eed.firebaseapp.com",
-            projectId: "photoboth-68eed",
-            storageBucket: "photoboth-68eed.firebasestorage.app",
-            messagingSenderId: "231382755509",
-            appId: "1:231382755509:web:7f17acc226d8452be336fc",
-            measurementId: "G-RNV52XTFBZ"
-        };
+        // Environment-compliant Firebase Configuration
+        let firebaseConfig;
+        try {
+            firebaseConfig = JSON.parse(__firebase_config);
+        } catch(e) {
+            // Fallback for local testing
+            firebaseConfig = {
+                apiKey: "AIzaSyCdACV1qmBuBR0XE8wonlToMcyhpFzQSN4",
+                authDomain: "photoboth-68eed.firebaseapp.com",
+                projectId: "photoboth-68eed",
+                storageBucket: "photoboth-68eed.firebasestorage.app",
+                messagingSenderId: "231382755509",
+                appId: "1:231382755509:web:7f17acc226d8452be336fc",
+                measurementId: "G-RNV52XTFBZ"
+            };
+        }
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const appId = 'ldr-booth-external';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'ldr-booth-external';
 
         let user = null;
         let unsubscribe = null;
         let currentRoom = null;
         
-        const peer = new Peer(); 
+        // PeerJS Setup with Google STUN servers to punch through strict networks/firewalls
+        const peer = new Peer({
+            config: {
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' }
+                ]
+            }
+        }); 
+        
         let isPeerReady = false;
         let localStream = null;
         const activeConnections = {};
@@ -48,6 +67,7 @@
         // Ensure Document Fonts are completely loaded
         document.fonts.ready.then(() => console.log("All Web Fonts Loaded"));
 
+        // Video un-freeze safety interval
         setInterval(() => {
             Object.values(window.videoElements).forEach(vid => {
                 if (vid && vid.paused && vid.srcObject) {
@@ -87,13 +107,7 @@
 
         window.getGridLayout = function(count, forceStrip = false) {
             if (count <= 1) return { cols: 1, rows: 1 };
-            
-            // If we are forcing a strip (for video) or it's an odd number
-            if (forceStrip || count % 2 !== 0) {
-                return { cols: count, rows: 1 }; 
-            }
-
-            // For even numbers (and polaroid mode), use grid
+            if (forceStrip || count % 2 !== 0) return { cols: count, rows: 1 };
             for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
                 if (count % rows === 0) return { cols: count / rows, rows: rows };
             }
@@ -111,9 +125,22 @@
             call.on('error', (err) => console.error("Call error:", err));
         });
 
-        signInAnonymously(auth).then(() => {
+        // Strict Authenticaton Flow Implementation
+        const initAuth = async () => {
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (err) {
+                console.error("Auth init failed:", err);
+            }
+        };
+
+        initAuth().then(() => {
             onAuthStateChanged(auth, (u) => { user = u; });
-        }).catch((error) => console.error("Auth Error:", error));
+        });
 
         function getCurrentSettingsFromDOM() {
             return {
@@ -126,7 +153,7 @@
         }
 
         window.syncSettingsToRoom = async function() {
-            if (!currentRoom) return;
+            if (!currentRoom || !user) return;
             try { await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { settings: getCurrentSettingsFromDOM() }); } catch (e) {}
         };
 
@@ -143,12 +170,15 @@
             const leaveBtn = document.getElementById('leave-room-btn');
         
             if(generateBtn) generateBtn.addEventListener('click', async () => {
-                if (!isPeerReady) return alert("Still connecting to network...");
+                if (!user) return alert("Still securely authenticating with database, please wait a second...");
+                if (!isPeerReady) return alert("Still connecting to STUN network, please wait a second...");
+                
                 generateBtn.innerText = "Generating...";
                 generateBtn.disabled = true;
                 const code = Math.random().toString(36).substring(2, 7).toUpperCase();
                 currentRoom = code;
-                const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+                const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Database Timeout")), 5000));
+                
                 try {
                     await Promise.race([
                         setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), { 
@@ -158,15 +188,21 @@
                     roomSetup.classList.add('hidden');
                     roomActive.classList.remove('hidden'); roomActive.classList.add('flex');
                     displayCode.innerText = code; listenToRoom(code);
-                } catch(e) { alert("Failed: " + e.message); } 
-                finally { generateBtn.innerText = "Generate Room Code"; generateBtn.disabled = false; }
+                } catch(e) { 
+                    console.error("Room Generation Error:", e);
+                    alert("Failed to generate room: " + e.message); 
+                } finally { 
+                    generateBtn.innerText = "Generate Room Code"; generateBtn.disabled = false; 
+                }
             });
         
             if(joinBtn) joinBtn.addEventListener('click', async () => {
-                if (!user) return alert("Connecting...");
-                if (!isPeerReady) return alert("Connecting...");
+                if (!user) return alert("Still securely authenticating with database, please wait a second...");
+                if (!isPeerReady) return alert("Still connecting to STUN network, please wait a second...");
+                
                 const input = document.getElementById('join-code-input').value.trim().toUpperCase();
                 if (!input) return alert("Enter a code");
+                
                 const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', input);
                 try {
                     const roomDoc = await getDoc(roomRef);
@@ -174,11 +210,21 @@
                         currentRoom = input;
                         const data = roomDoc.data();
                         if (data.settings && typeof window.applyRemoteSettings === 'function') window.applyRemoteSettings(data.settings);
+                        
                         await updateDoc(roomRef, { status: 'ready', participants: arrayUnion(peer.id) });
-                        roomSetup.classList.add('hidden'); roomActive.classList.remove('hidden'); roomActive.classList.add('flex');
-                        displayCode.innerText = input; listenToRoom(input);
-                    } else { alert("Room not found."); }
-                } catch(e) { alert("Error joining."); }
+                        
+                        roomSetup.classList.add('hidden'); 
+                        roomActive.classList.remove('hidden'); 
+                        roomActive.classList.add('flex');
+                        displayCode.innerText = input; 
+                        listenToRoom(input);
+                    } else { 
+                        alert("Room not found. Make sure the code is correct."); 
+                    }
+                } catch(e) { 
+                    console.error("Join Room Error:", e);
+                    alert("Error joining: " + e.message); 
+                }
             });
         
             if(copyBtn) copyBtn.addEventListener('click', () => {
@@ -189,15 +235,19 @@
         
             if(leaveBtn) leaveBtn.addEventListener('click', () => {
                 if (unsubscribe) unsubscribe();
-                if (currentRoom && peer.id) {
+                if (currentRoom && peer.id && user) {
                     updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { participants: arrayRemove(peer.id) }).catch(e=>{});
                 }
                 currentRoom = null;
                 Object.values(activeConnections).forEach(call => call.close());
                 Object.keys(window.videoElements).forEach(peerId => { if (peerId !== 'local') removeRemoteVideo(peerId); });
-                roomSetup.classList.remove('hidden'); roomActive.classList.add('hidden'); roomActive.classList.remove('flex');
+                
+                roomSetup.classList.remove('hidden'); 
+                roomActive.classList.add('hidden'); 
+                roomActive.classList.remove('flex');
                 document.getElementById('join-code-input').value = '';
-                roomStatus.innerText = "Waiting for partner..."; roomStatus.className = "text-sm font-semibold text-yellow-500";
+                roomStatus.innerText = "Waiting for partner..."; 
+                roomStatus.className = "text-sm font-semibold text-yellow-500";
                 statusDot.className = "w-3 h-3 rounded-full bg-yellow-500 animate-pulse";
             });
         }
@@ -221,10 +271,13 @@
         };
         
         function listenToRoom(code) {
+            if (!user) return;
             if (unsubscribe) unsubscribe(); 
+            
             unsubscribe = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', code), (docSnapshot) => {
                 const data = docSnapshot.data();
                 if (!data) return;
+                
                 if (data.participants) {
                     Object.keys(activeConnections).forEach(existingId => {
                         if (!data.participants.includes(existingId)) {
@@ -232,6 +285,7 @@
                             removeRemoteVideo(existingId);
                         }
                     });
+                    
                     const count = data.participants.length;
                     if (count > 1) {
                         const roomStatus = document.getElementById('room-status');
@@ -239,6 +293,7 @@
                         if(roomStatus) { roomStatus.innerText = `${count} People Connected!`; roomStatus.className = "text-sm font-semibold text-emerald-400"; }
                         if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
                     }
+                    
                     data.participants.forEach(pId => {
                         if (pId !== peer.id && !activeConnections[pId]) {
                             if (peer.id > pId) {
@@ -271,24 +326,35 @@
 
             const vid = document.createElement('video');
             vid.className = 'w-full h-full object-cover transition-all duration-300';
-            vid.setAttribute('autoplay', 'autoplay'); vid.setAttribute('playsinline', 'playsinline'); vid.setAttribute('muted', 'muted');
-            vid.muted = true; vid.style.transform = 'scaleX(-1)'; 
+            vid.setAttribute('autoplay', 'autoplay'); 
+            vid.setAttribute('playsinline', 'playsinline'); 
+            vid.setAttribute('muted', 'muted');
+            vid.muted = true; 
+            vid.style.transform = 'scaleX(-1)'; 
 
             const label = document.createElement('div');
             label.className = 'absolute bottom-2 left-2 bg-black/60 text-white text-[10px] tracking-widest font-bold px-2 py-1 rounded z-10';
             label.innerText = `PARTNER`;
 
-            wrapper.appendChild(vid); wrapper.appendChild(label); grid.appendChild(wrapper);
-            window.videoElements[peerId] = vid; updateGridCSS();
+            wrapper.appendChild(vid); 
+            wrapper.appendChild(label); 
+            grid.appendChild(wrapper);
+            
+            window.videoElements[peerId] = vid; 
+            updateGridCSS();
             
             vid.srcObject = stream;
-            try { vid.load(); const playPromise = vid.play(); if (playPromise !== undefined) playPromise.catch(e=>{}); } catch (err) {}
+            vid.onloadedmetadata = () => {
+                // Safely attempt play, removed the problematic vid.load() which causes black screens
+                vid.play().catch(e => console.warn("Initial remote play delayed", e));
+            };
         }
 
         function removeRemoteVideo(peerId) {
             const wrapper = document.getElementById(`wrapper-${peerId}`);
             if (wrapper) wrapper.remove();
-            delete window.videoElements[peerId]; delete activeConnections[peerId];
+            delete window.videoElements[peerId]; 
+            delete activeConnections[peerId];
             updateGridCSS();
         }
 
@@ -301,6 +367,7 @@
             grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
             grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
+        window.updateGridCSS = updateGridCSS;
         
         window.setLocalStream = (stream) => {
             localStream = stream;
@@ -537,7 +604,7 @@
             if (settings.photoCount && photoCountSelect.value !== settings.photoCount) { photoCountSelect.value = settings.photoCount; changed = true; }
             if (settings.countdown && countdownSelect.value !== settings.countdown) { countdownSelect.value = settings.countdown; timerHelperText.innerText = `Provides a ${settings.countdown}-second timer between each shot.`; changed = true; }
             if (settings.filter && filterSelect.value !== settings.filter) { filterSelect.value = settings.filter; video.style.filter = settings.filter; changed = true; }
-            if (settings.design && stripDesignSelect.value !== settings.design) { stripDesignSelect.value = settings.design; changed = true; updateGridCSS(); }
+            if (settings.design && stripDesignSelect.value !== settings.design) { stripDesignSelect.value = settings.design; changed = true; window.updateGridCSS(); }
             if (settings.font && fontSelect.value !== settings.font) { fontSelect.value = settings.font; changed = true; }
 
             if (!changed) return;
@@ -929,7 +996,7 @@
         stripDesignSelect.addEventListener('change', () => {
             if (!isCapturing && capturedFrames.length > 0) renderStrip();
             if (typeof window.syncSettingsToRoom === 'function') window.syncSettingsToRoom();
-            updateGridCSS();
+            window.updateGridCSS();
         });
         
         fontSelect.addEventListener('change', () => {
