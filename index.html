@@ -42,19 +42,10 @@
         let user = null;
         let unsubscribe = null;
         let currentRoom = null;
+        let currentParticipants = []; // Tracks who SHOULD be in the room
         
-        // PeerJS Setup with Google STUN servers to punch through strict networks/firewalls
-        const peer = new Peer({
-            config: {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun4.l.google.com:19302' }
-                ]
-            }
-        }); 
+        // Use default configuration to preserve built-in TURN/STUN fallback routing
+        const peer = new Peer(); 
         
         let isPeerReady = false;
         let localStream = null;
@@ -67,24 +58,37 @@
         // Ensure Document Fonts are completely loaded
         document.fonts.ready.then(() => console.log("All Web Fonts Loaded"));
 
-        // Video un-freeze & PeerJS signaling safety intervals
+        // The Self-Healing Heartbeat
         setInterval(() => {
             // 1. Force un-freeze videos if mobile browsers pause them automatically
             Object.values(window.videoElements).forEach(vid => {
                 if (vid && vid.paused && vid.srcObject) {
-                    const playPromise = vid.play();
-                    if (playPromise !== undefined) playPromise.catch(() => {}); 
+                    vid.play().catch(() => {}); 
                 }
             });
 
-            // 2. Heavy operations (like Canvas Video encoding) can cause the main thread to hitch,
-            // resulting in the PeerJS Signaling WebSocket silently dropping. This reconnects it 
-            // automatically so late joiners can still trigger calls and appear on screen!
+            // 2. Reconnect PeerJS if it dropped due to heavy video encoding
             if (peer && peer.disconnected && !peer.destroyed) {
-                console.log("Signaling server disconnected (likely due to encoding workload). Reconnecting...");
+                console.log("Signaling server disconnected. Reconnecting...");
                 peer.reconnect();
+            } 
+            // 3. Retry missed calls: If a user joined while we were disconnected, call them now!
+            else if (peer && !peer.disconnected && isPeerReady && localStream) {
+                currentParticipants.forEach(pId => {
+                    // If they are in the database, but not on our screen, retry the call
+                    if (pId !== peer.id && !activeConnections[pId] && peer.id > pId) {
+                        console.log("Retrying missed connection to:", pId);
+                        const call = peer.call(pId, localStream);
+                        if (call) {
+                            activeConnections[pId] = call;
+                            call.on('stream', (remoteStream) => { addRemoteVideo(pId, remoteStream); });
+                            call.on('close', () => removeRemoteVideo(pId));
+                            call.on('error', () => removeRemoteVideo(pId));
+                        }
+                    }
+                });
             }
-        }, 2500);
+        }, 3000);
     
         // Unified Text Renderer for both Images and Video Frames
         window.drawSharedText = function(ctx, canvasWidth, canvasHeight, design, fontChoice) {
@@ -180,7 +184,7 @@
         
             if(generateBtn) generateBtn.addEventListener('click', async () => {
                 if (!user) return alert("Still securely authenticating with database, please wait a second...");
-                if (!isPeerReady) return alert("Still connecting to STUN network, please wait a second...");
+                if (!isPeerReady) return alert("Still connecting to network, please wait a second...");
                 
                 generateBtn.innerText = "Generating...";
                 generateBtn.disabled = true;
@@ -207,7 +211,7 @@
         
             if(joinBtn) joinBtn.addEventListener('click', async () => {
                 if (!user) return alert("Still securely authenticating with database, please wait a second...");
-                if (!isPeerReady) return alert("Still connecting to STUN network, please wait a second...");
+                if (!isPeerReady) return alert("Still connecting to network, please wait a second...");
                 
                 const input = document.getElementById('join-code-input').value.trim().toUpperCase();
                 if (!input) return alert("Enter a code");
@@ -248,6 +252,7 @@
                     updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { participants: arrayRemove(peer.id) }).catch(e=>{});
                 }
                 currentRoom = null;
+                currentParticipants = [];
                 Object.values(activeConnections).forEach(call => call.close());
                 Object.keys(window.videoElements).forEach(peerId => { if (peerId !== 'local') removeRemoteVideo(peerId); });
                 
@@ -288,14 +293,17 @@
                 if (!data) return;
                 
                 if (data.participants) {
+                    currentParticipants = data.participants; // Update global state for heartbeat
+                    
+                    // Cleanup people who left
                     Object.keys(activeConnections).forEach(existingId => {
-                        if (!data.participants.includes(existingId)) {
+                        if (!currentParticipants.includes(existingId)) {
                             if (activeConnections[existingId]) activeConnections[existingId].close();
                             removeRemoteVideo(existingId);
                         }
                     });
                     
-                    const count = data.participants.length;
+                    const count = currentParticipants.length;
                     if (count > 1) {
                         const roomStatus = document.getElementById('room-status');
                         const statusDot = document.getElementById('status-dot');
@@ -303,7 +311,8 @@
                         if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
                     }
                     
-                    data.participants.forEach(pId => {
+                    // Initial Call trigger
+                    currentParticipants.forEach(pId => {
                         if (pId !== peer.id && !activeConnections[pId]) {
                             // Enforce strict lexical call ordering to prevent glare/double-calling
                             if (peer.id > pId) {
@@ -358,9 +367,9 @@
             
             vid.srcObject = stream;
             vid.onloadedmetadata = () => {
-                // Safely attempt play, removed the problematic vid.load() which causes black screens
                 vid.play().catch(e => console.warn("Initial remote play delayed", e));
             };
+            vid.play().catch(e => {}); // Fallback attempt
         }
 
         function removeRemoteVideo(peerId) {
