@@ -67,15 +67,24 @@
         // Ensure Document Fonts are completely loaded
         document.fonts.ready.then(() => console.log("All Web Fonts Loaded"));
 
-        // Video un-freeze safety interval
+        // Video un-freeze & PeerJS signaling safety intervals
         setInterval(() => {
+            // 1. Force un-freeze videos if mobile browsers pause them automatically
             Object.values(window.videoElements).forEach(vid => {
                 if (vid && vid.paused && vid.srcObject) {
                     const playPromise = vid.play();
                     if (playPromise !== undefined) playPromise.catch(() => {}); 
                 }
             });
-        }, 2000);
+
+            // 2. Heavy operations (like Canvas Video encoding) can cause the main thread to hitch,
+            // resulting in the PeerJS Signaling WebSocket silently dropping. This reconnects it 
+            // automatically so late joiners can still trigger calls and appear on screen!
+            if (peer && peer.disconnected && !peer.destroyed) {
+                console.log("Signaling server disconnected (likely due to encoding workload). Reconnecting...");
+                peer.reconnect();
+            }
+        }, 2500);
     
         // Unified Text Renderer for both Images and Video Frames
         window.drawSharedText = function(ctx, canvasWidth, canvasHeight, design, fontChoice) {
@@ -122,7 +131,7 @@
             call.answer(localStream); 
             call.on('stream', (remoteStream) => { addRemoteVideo(call.peer, remoteStream); });
             call.on('close', () => removeRemoteVideo(call.peer));
-            call.on('error', (err) => console.error("Call error:", err));
+            call.on('error', (err) => { console.error("Call error:", err); removeRemoteVideo(call.peer); });
         });
 
         // Strict Authenticaton Flow Implementation
@@ -296,12 +305,16 @@
                     
                     data.participants.forEach(pId => {
                         if (pId !== peer.id && !activeConnections[pId]) {
+                            // Enforce strict lexical call ordering to prevent glare/double-calling
                             if (peer.id > pId) {
                                 window.cameraReadyPromise.then(() => {
                                     const call = peer.call(pId, localStream);
-                                    activeConnections[pId] = call;
-                                    call.on('stream', (remoteStream) => { addRemoteVideo(pId, remoteStream); });
-                                    call.on('close', () => removeRemoteVideo(pId));
+                                    if (call) {
+                                        activeConnections[pId] = call;
+                                        call.on('stream', (remoteStream) => { addRemoteVideo(pId, remoteStream); });
+                                        call.on('close', () => removeRemoteVideo(pId));
+                                        call.on('error', (err) => { console.warn("Outbound call error:", err); removeRemoteVideo(pId); });
+                                    }
                                 });
                             }
                         }
