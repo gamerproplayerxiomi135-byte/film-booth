@@ -42,9 +42,8 @@
         let user = null;
         let unsubscribe = null;
         let currentRoom = null;
-        let currentParticipants = []; // Tracks who SHOULD be in the room
         
-        // Use default configuration to preserve built-in TURN/STUN fallback routing
+        // Reverted to PeerJS default robust routing to prevent strict network blocks
         const peer = new Peer(); 
         
         let isPeerReady = false;
@@ -55,40 +54,62 @@
         let cameraReadyResolver;
         window.cameraReadyPromise = new Promise((resolve) => { cameraReadyResolver = resolve; });
 
-        // Ensure Document Fonts are completely loaded
+        // Ensure Document Fonts are completely loaded for Canvas Video Drawing
         document.fonts.ready.then(() => console.log("All Web Fonts Loaded"));
 
-        // The Self-Healing Heartbeat
-        setInterval(() => {
+        setInterval(async () => {
             // 1. Force un-freeze videos if mobile browsers pause them automatically
             Object.values(window.videoElements).forEach(vid => {
                 if (vid && vid.paused && vid.srcObject) {
-                    vid.play().catch(() => {}); 
+                    const playPromise = vid.play();
+                    if (playPromise !== undefined) playPromise.catch(() => {}); 
                 }
             });
 
-            // 2. Reconnect PeerJS if it dropped due to heavy video encoding
+            // 2. Reconnect Signaling WebSocket if it drops during heavy video encoding
             if (peer && peer.disconnected && !peer.destroyed) {
                 console.log("Signaling server disconnected. Reconnecting...");
                 peer.reconnect();
-            } 
-            // 3. Retry missed calls: If a user joined while we were disconnected, call them now!
-            else if (peer && !peer.disconnected && isPeerReady && localStream) {
-                currentParticipants.forEach(pId => {
-                    // If they are in the database, but not on our screen, retry the call
-                    if (pId !== peer.id && !activeConnections[pId] && peer.id > pId) {
-                        console.log("Retrying missed connection to:", pId);
-                        const call = peer.call(pId, localStream);
-                        if (call) {
-                            activeConnections[pId] = call;
-                            call.on('stream', (remoteStream) => { addRemoteVideo(pId, remoteStream); });
-                            call.on('close', () => removeRemoteVideo(pId));
-                            call.on('error', () => removeRemoteVideo(pId));
+            }
+
+            // 3. Self-Healing: Check if someone missed our call because of encoding lock-up
+            if (currentRoom && peer && !peer.disconnected) {
+                try {
+                    const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom);
+                    const roomDoc = await getDoc(roomRef);
+                    if (roomDoc.exists()) {
+                        const data = roomDoc.data();
+                        if (data.participants) {
+                            data.participants.forEach(pId => {
+                                if (pId !== peer.id && !window.videoElements[pId]) {
+                                    // Lexical check prevents both sides calling at exact same time
+                                    if (peer.id > pId) {
+                                        window.cameraReadyPromise.then(() => {
+                                            const call = peer.call(pId, localStream);
+                                            if (call) {
+                                                activeConnections[pId] = call;
+                                                call.on('stream', (remoteStream) => { addRemoteVideo(pId, remoteStream); });
+                                                call.on('close', () => removeRemoteVideo(pId));
+                                                call.on('error', () => { removeRemoteVideo(pId); });
+                                            }
+                                        });
+                                    }
+                                }
+                            });
                         }
                     }
-                });
+                } catch(e) {} // Silent fail on heartbeat
             }
         }, 3000);
+
+        window.showToast = function(msg, isError = false) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-2 rounded shadow-lg text-white text-sm font-semibold transition-opacity duration-300 ${isError ? 'bg-red-600' : 'bg-gray-800 border border-gray-700'}`;
+            toast.innerText = msg;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+        };
     
         // Unified Text Renderer for both Images and Video Frames
         window.drawSharedText = function(ctx, canvasWidth, canvasHeight, design, fontChoice) {
@@ -118,13 +139,16 @@
             ctx.fillText(dateStr, canvasWidth / 2, textYPos + 45);
         };
 
-        window.getGridLayout = function(count, forceStrip = false) {
+        // Layout completely decoupled from design styles! Always returns proper grid.
+        window.getGridLayout = function(count) {
             if (count <= 1) return { cols: 1, rows: 1 };
-            if (forceStrip || count % 2 !== 0) return { cols: count, rows: 1 };
-            for (let rows = Math.floor(Math.sqrt(count)); rows >= 1; rows--) {
-                if (count % rows === 0) return { cols: count / rows, rows: rows };
-            }
-            return { cols: count, rows: 1 }; 
+            if (count === 2) return { cols: 2, rows: 1 };
+            if (count === 3) return { cols: 3, rows: 1 };
+            if (count === 4) return { cols: 2, rows: 2 };
+            if (count === 5 || count === 6) return { cols: 3, rows: 2 };
+            let cols = Math.ceil(Math.sqrt(count));
+            let rows = Math.ceil(count / cols);
+            return { cols: cols, rows: rows }; 
         };
 
         peer.on('open', (id) => { isPeerReady = true; });
@@ -135,10 +159,9 @@
             call.answer(localStream); 
             call.on('stream', (remoteStream) => { addRemoteVideo(call.peer, remoteStream); });
             call.on('close', () => removeRemoteVideo(call.peer));
-            call.on('error', (err) => { console.error("Call error:", err); removeRemoteVideo(call.peer); });
+            call.on('error', (err) => { removeRemoteVideo(call.peer); });
         });
 
-        // Strict Authenticaton Flow Implementation
         const initAuth = async () => {
             try {
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
@@ -183,14 +206,14 @@
             const leaveBtn = document.getElementById('leave-room-btn');
         
             if(generateBtn) generateBtn.addEventListener('click', async () => {
-                if (!user) return alert("Still securely authenticating with database, please wait a second...");
-                if (!isPeerReady) return alert("Still connecting to network, please wait a second...");
+                if (!user) return window.showToast("Authenticating securely, please wait...", true);
+                if (!isPeerReady) return window.showToast("Connecting to network, please wait...", true);
                 
                 generateBtn.innerText = "Generating...";
                 generateBtn.disabled = true;
                 const code = Math.random().toString(36).substring(2, 7).toUpperCase();
                 currentRoom = code;
-                const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Database Timeout")), 5000));
+                const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
                 
                 try {
                     await Promise.race([
@@ -202,19 +225,18 @@
                     roomActive.classList.remove('hidden'); roomActive.classList.add('flex');
                     displayCode.innerText = code; listenToRoom(code);
                 } catch(e) { 
-                    console.error("Room Generation Error:", e);
-                    alert("Failed to generate room: " + e.message); 
+                    window.showToast("Failed to generate room.", true); 
                 } finally { 
                     generateBtn.innerText = "Generate Room Code"; generateBtn.disabled = false; 
                 }
             });
         
             if(joinBtn) joinBtn.addEventListener('click', async () => {
-                if (!user) return alert("Still securely authenticating with database, please wait a second...");
-                if (!isPeerReady) return alert("Still connecting to network, please wait a second...");
+                if (!user) return window.showToast("Authenticating securely, please wait...", true);
+                if (!isPeerReady) return window.showToast("Connecting to network, please wait...", true);
                 
                 const input = document.getElementById('join-code-input').value.trim().toUpperCase();
-                if (!input) return alert("Enter a code");
+                if (!input) return window.showToast("Enter a code", true);
                 
                 const roomRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', input);
                 try {
@@ -232,11 +254,10 @@
                         displayCode.innerText = input; 
                         listenToRoom(input);
                     } else { 
-                        alert("Room not found. Make sure the code is correct."); 
+                        window.showToast("Room not found.", true); 
                     }
                 } catch(e) { 
-                    console.error("Join Room Error:", e);
-                    alert("Error joining: " + e.message); 
+                    window.showToast("Error joining room.", true); 
                 }
             });
         
@@ -252,7 +273,6 @@
                     updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { participants: arrayRemove(peer.id) }).catch(e=>{});
                 }
                 currentRoom = null;
-                currentParticipants = [];
                 Object.values(activeConnections).forEach(call => call.close());
                 Object.keys(window.videoElements).forEach(peerId => { if (peerId !== 'local') removeRemoteVideo(peerId); });
                 
@@ -281,7 +301,7 @@
             try {
                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', currentRoom), { trigger: 'start', timestamp: serverTimestamp() });
                  if(typeof window.startSequence === 'function') window.startSequence();
-            } catch (error) { alert("Connection error."); }
+            } catch (error) { window.showToast("Connection error.", true); }
         };
         
         function listenToRoom(code) {
@@ -293,17 +313,14 @@
                 if (!data) return;
                 
                 if (data.participants) {
-                    currentParticipants = data.participants; // Update global state for heartbeat
-                    
-                    // Cleanup people who left
                     Object.keys(activeConnections).forEach(existingId => {
-                        if (!currentParticipants.includes(existingId)) {
+                        if (!data.participants.includes(existingId)) {
                             if (activeConnections[existingId]) activeConnections[existingId].close();
                             removeRemoteVideo(existingId);
                         }
                     });
                     
-                    const count = currentParticipants.length;
+                    const count = data.participants.length;
                     if (count > 1) {
                         const roomStatus = document.getElementById('room-status');
                         const statusDot = document.getElementById('status-dot');
@@ -311,10 +328,9 @@
                         if(statusDot) statusDot.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]";
                     }
                     
-                    // Initial Call trigger
-                    currentParticipants.forEach(pId => {
+                    data.participants.forEach(pId => {
                         if (pId !== peer.id && !activeConnections[pId]) {
-                            // Enforce strict lexical call ordering to prevent glare/double-calling
+                            // Lexical Call Order
                             if (peer.id > pId) {
                                 window.cameraReadyPromise.then(() => {
                                     const call = peer.call(pId, localStream);
@@ -322,7 +338,7 @@
                                         activeConnections[pId] = call;
                                         call.on('stream', (remoteStream) => { addRemoteVideo(pId, remoteStream); });
                                         call.on('close', () => removeRemoteVideo(pId));
-                                        call.on('error', (err) => { console.warn("Outbound call error:", err); removeRemoteVideo(pId); });
+                                        call.on('error', () => { removeRemoteVideo(pId); });
                                     }
                                 });
                             }
@@ -367,9 +383,8 @@
             
             vid.srcObject = stream;
             vid.onloadedmetadata = () => {
-                vid.play().catch(e => console.warn("Initial remote play delayed", e));
+                vid.play().catch(e => console.warn("Initial remote play delayed"));
             };
-            vid.play().catch(e => {}); // Fallback attempt
         }
 
         function removeRemoteVideo(peerId) {
@@ -384,8 +399,7 @@
             const count = Object.keys(window.videoElements).length;
             const grid = document.getElementById('video-grid');
             if (!window.getGridLayout) return;
-            const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
-            const layout = window.getGridLayout(count, !isPolaroid); // Force strip if not polaroid
+            const layout = window.getGridLayout(count); // Standard Grid layout ALWAYS
             grid.style.gridTemplateColumns = `repeat(${layout.cols}, minmax(0, 1fr))`;
             grid.style.gridTemplateRows = `repeat(${layout.rows}, minmax(0, 1fr))`;
         }
@@ -414,6 +428,8 @@
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center py-10 px-4">
+
+    <div id="toast-container" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
     <!-- Font Preloader -->
     <div class="font-preload">
@@ -692,8 +708,8 @@
             ctx.translate(width, 0); ctx.scale(-1, 1); ctx.filter = filterValue || 'none';
             const activeVids = getActiveVideos();
             const count = Math.max(1, activeVids.length); 
-            const isPolaroid = document.getElementById('strip-design-select').value === 'polaroid';
-            const layout = window.getGridLayout ? window.getGridLayout(count, !isPolaroid) : { cols: 1, rows: 1 };
+            // We cleanly render the inner-slot cameras via standard grid logic.
+            const layout = window.getGridLayout(count);
             const cellW = width / layout.cols; const cellH = height / layout.rows;
 
             activeVids.forEach((vidElem, index) => {
@@ -778,6 +794,8 @@
             if (totalPhotos === 0) return;
 
             const isPolaroid = stripDesignSelect.value === 'polaroid';
+            // Here is where the specific final-image formatting occurs. 
+            // If it's polaroid, it's a grid of photos. Otherwise, it's a 1xN strip of photos.
             const layout = isPolaroid ? window.getGridLayout(totalPhotos) : { cols: 1, rows: totalPhotos };
             const columns = layout.cols;
             const rows = layout.rows;
@@ -815,7 +833,7 @@
             if (capturedFrames.length === 0) return;
             try {
                 const link = document.createElement('a'); link.download = `film-strip-${Date.now()}.png`; link.href = stripCanvas.toDataURL('image/png', 1.0); link.click();
-            } catch(e) { alert("Cannot download. Right click the strip and save it directly."); }
+            } catch(e) { window.showToast("Cannot download automatically. Right click to save.", true); }
         }
 
         window.startSequence = async function() {
@@ -916,7 +934,7 @@
                     function drawRecordFrame() {
                         if (!isVideoRecording) return;
                         
-                        // STRIP CANVAS
+                        // STRIP CANVAS (Vertical Slots)
                         stripRecCtx.save();
                         stripRecCtx.scale(scale, scale); 
                         stripRecCtx.drawImage(stripBgCanvas, 0, 0);
@@ -942,7 +960,7 @@
                         window.drawSharedText(stripRecCtx, config.stripWidth, stripTotalHeight, stripDesignSelect.value, fontSelect.value);
                         stripRecCtx.restore();
 
-                        // GRID/POLAROID CANVAS
+                        // GRID/POLAROID CANVAS (Single Full-Frame slot rendering a live multi-camera grid)
                         gridRecCtx.save();
                         gridRecCtx.scale(scale, scale); 
                         gridRecCtx.drawImage(gridBgCanvas, 0, 0);
@@ -990,7 +1008,7 @@
                 renderStrip();
                 
             } catch (globalError) {
-                alert("An error occurred while generating your strip. Please try again.");
+                window.showToast("An error occurred while generating. Please try again.", true);
             } finally {
                 window.isCapturing = false;
                 startBtn.disabled = false; photoCountSelect.disabled = false; filterSelect.disabled = false;
